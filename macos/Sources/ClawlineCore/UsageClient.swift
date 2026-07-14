@@ -30,12 +30,31 @@ enum ClaudeUsageCommand {
                 let output = Pipe()
                 let error = Pipe()
                 process.executableURL = URL(fileURLWithPath: executable)
-                process.arguments = ["-p", "--no-session-persistence", "/usage"]
+                process.arguments = [
+                    "-p",
+                    "--no-session-persistence",
+                    "--tools", "",
+                    "--strict-mcp-config",
+                    "--mcp-config", #"{"mcpServers":{}}"#,
+                    "--setting-sources", "",
+                    "/usage",
+                ]
                 process.standardInput = FileHandle.nullDevice
                 process.standardOutput = output
                 process.standardError = error
 
                 do {
+                    let runtimeDirectory = FileManager.default.urls(
+                        for: .applicationSupportDirectory,
+                        in: .userDomainMask
+                    )[0]
+                        .appendingPathComponent("Clawstatus", isDirectory: true)
+                        .appendingPathComponent("Runtime", isDirectory: true)
+                    try FileManager.default.createDirectory(
+                        at: runtimeDirectory,
+                        withIntermediateDirectories: true
+                    )
+                    process.currentDirectoryURL = runtimeDirectory
                     try process.run()
                     process.waitUntilExit()
                     let stdout = output.fileHandleForReading.readDataToEndOfFile()

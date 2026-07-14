@@ -8,7 +8,9 @@ browser or webview.
 
 - Runs the installed Claude Code CLI headlessly with
   `claude -p --no-session-persistence /usage` every 60 seconds and reads its
-  plain-text usage report.
+  plain-text usage report. The process runs in an isolated app-owned directory
+  with tools, MCP servers, and project/user settings disabled, so it does not
+  request access to Desktop, Documents, projects, or other protected folders.
 - Always shows the remaining percentage of the current 5-hour session directly
   in the menu bar (for example, `76%`).
 - Shows the 5-hour and 7-day usage windows in the floating HUD.
@@ -33,6 +35,21 @@ open dist/Clawstatus.app
 
 The packaged application is written to `macos/dist/Clawstatus.app`. It is signed
 ad hoc for local use and is not uploaded or distributed by the build script.
+
+## Install on Apple Silicon
+
+Requirements: Apple Silicon, macOS 13 or newer, and an installed, signed-in
+Claude Code CLI that supports headless `/usage`.
+
+Create the drag-to-Applications installer:
+
+```bash
+./macos/scripts/package-dmg.sh
+```
+
+Open `macos/dist/Clawstatus-0.2.0-apple-silicon.dmg`, then drag Clawstatus to
+Applications. This build is ad-hoc signed rather than Apple-notarized, so on the
+first launch use Control-click → Open and confirm once if Gatekeeper asks.
 
 ## Project layout
 

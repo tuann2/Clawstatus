@@ -16,6 +16,7 @@ Run from the repository root:
 
 - `swift run --package-path macos ClawlineCheck` — validate parsing and credential handling
 - `./macos/scripts/build-app.sh` — build and locally ad-hoc-sign `macos/dist/Clawstatus.app`
+- `./macos/scripts/package-dmg.sh` — create the Apple Silicon drag-to-Applications DMG
 - `open macos/dist/Clawstatus.app` — launch the packaged menu-bar app
 
 ## Coding Style

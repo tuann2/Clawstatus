@@ -79,7 +79,7 @@ struct HUDView: View {
                 .foregroundStyle(Color.green)
                 .labelStyle(CompactStatusLabelStyle())
         case .authentication:
-            Button(action: openClaudeSignIn) {
+            Button(action: openTerminal) {
                 Label("Sign in", systemImage: "exclamationmark.circle.fill")
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(coral)
@@ -162,35 +162,12 @@ struct HUDView: View {
         }
     }
 
-    private func openClaudeSignIn() {
-        let candidates = [
-            "/opt/homebrew/bin/claude",
-            "/usr/local/bin/claude",
-            FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".local/bin/claude").path,
-        ]
-
-        guard let executable = candidates.first(where: {
-            FileManager.default.isExecutableFile(atPath: $0)
-        }) else {
-            if let docs = URL(string: "https://docs.anthropic.com/en/docs/claude-code/getting-started") {
-                NSWorkspace.shared.open(docs)
-            }
-            return
-        }
-
-        let escaped = executable
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-        let script = """
-        tell application "Terminal"
-            activate
-            do script "\(escaped)"
-        end tell
-        """
-
-        var error: NSDictionary?
-        NSAppleScript(source: script)?.executeAndReturnError(&error)
+    private func openTerminal() {
+        let terminal = URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app")
+        NSWorkspace.shared.openApplication(
+            at: terminal,
+            configuration: NSWorkspace.OpenConfiguration()
+        )
     }
 }
 
