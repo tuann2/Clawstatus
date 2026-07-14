@@ -50,16 +50,18 @@ final class UsageStore: ObservableObject {
             snapshot = freshSnapshot
             connectionState = .live
             SnapshotCache.save(freshSnapshot)
-        } catch UsageError.credentialsMissing {
+        } catch UsageError.claudeNotInstalled {
+            connectionState = .authentication("Install Claude Code, then sign in")
+        } catch UsageError.claudeCommandFailed {
             connectionState = .authentication("Open Claude Code and sign in")
-        } catch UsageError.credentialsInvalid {
-            connectionState = .authentication("Claude Code sign-in is unavailable")
+        } catch UsageError.usageOutputInvalid {
+            connectionState = .offline("Claude Code usage format changed")
+        } catch UsageError.credentialsMissing, UsageError.credentialsInvalid, UsageError.unauthorized {
+            connectionState = .authentication("Open Claude Code and sign in")
         } catch UsageError.keychainAccessDenied {
             connectionState = .authentication("Allow Keychain access, then retry")
         } catch UsageError.keychain {
             connectionState = .authentication("Could not read Claude Code from Keychain")
-        } catch UsageError.unauthorized {
-            connectionState = .authentication("Sign-in expired — open Claude Code")
         } catch {
             connectionState = .offline("Offline — retrying")
         }

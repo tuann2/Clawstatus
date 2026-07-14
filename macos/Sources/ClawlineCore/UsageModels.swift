@@ -26,59 +26,10 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
     }
 }
 
-public struct UsageAPIResponse: Decodable, Sendable {
-    public struct Window: Decodable, Sendable {
-        public let utilization: Double?
-        public let resetsAt: String?
-
-        enum CodingKeys: String, CodingKey {
-            case utilization
-            case resetsAt = "resets_at"
-        }
-    }
-
-    public let fiveHour: Window?
-    public let sevenDay: Window?
-
-    enum CodingKeys: String, CodingKey {
-        case fiveHour = "five_hour"
-        case sevenDay = "seven_day"
-    }
-
-    public func snapshot(capturedAt: Date = Date()) throws -> UsageSnapshot {
-        guard let fiveHour, let sevenDay,
-              let fiveHourValue = fiveHour.utilization,
-              let sevenDayValue = sevenDay.utilization else {
-            throw UsageError.invalidResponse
-        }
-
-        return UsageSnapshot(
-            fiveHour: UsageWindow(
-                utilization: fiveHourValue,
-                resetsAt: Self.parseDate(fiveHour.resetsAt)
-            ),
-            sevenDay: UsageWindow(
-                utilization: sevenDayValue,
-                resetsAt: Self.parseDate(sevenDay.resetsAt)
-            ),
-            capturedAt: capturedAt
-        )
-    }
-
-    private static func parseDate(_ value: String?) -> Date? {
-        guard let value else { return nil }
-
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = fractional.date(from: value) {
-            return date
-        }
-
-        return ISO8601DateFormatter().date(from: value)
-    }
-}
-
 public enum UsageError: LocalizedError, Equatable {
+    case claudeNotInstalled
+    case claudeCommandFailed(String)
+    case usageOutputInvalid
     case credentialsMissing
     case credentialsInvalid
     case keychainAccessDenied
@@ -89,6 +40,12 @@ public enum UsageError: LocalizedError, Equatable {
 
     public var errorDescription: String? {
         switch self {
+        case .claudeNotInstalled:
+            "Claude Code is not installed"
+        case .claudeCommandFailed:
+            "Claude Code could not retrieve usage"
+        case .usageOutputInvalid:
+            "Claude Code returned an unsupported usage report"
         case .credentialsMissing:
             "Claude Code is not signed in"
         case .credentialsInvalid:
