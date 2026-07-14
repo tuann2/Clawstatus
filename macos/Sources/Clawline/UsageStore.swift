@@ -13,16 +13,20 @@ final class UsageStore: ObservableObject {
     }
 
     @Published private(set) var snapshot: UsageSnapshot?
+    @Published private(set) var codexSnapshot: CodexUsageSnapshot?
     @Published private(set) var connectionState: ConnectionState = .loading
     @Published private(set) var isRefreshing = false
 
     private let client: UsageClient
+    private let codexClient: CodexUsageClient
     private var pollingTask: Task<Void, Never>?
 
-    init(client: UsageClient = UsageClient()) {
+    init(client: UsageClient = UsageClient(), codexClient: CodexUsageClient = CodexUsageClient()) {
         self.client = client
+        self.codexClient = codexClient
         snapshot = SnapshotCache.load()
-        if snapshot != nil {
+        codexSnapshot = SnapshotCache.loadCodex()
+        if snapshot != nil || codexSnapshot != nil {
             connectionState = .live
         }
 
@@ -36,8 +40,9 @@ final class UsageStore: ObservableObject {
     }
 
     var menuLabel: String {
-        guard let snapshot else { return "—%" }
-        return Self.percent(snapshot.fiveHour.remainingPercentage)
+        let claude = snapshot.map { "C \(Self.percent($0.fiveHour.remainingPercentage))" }
+        let codex = codexSnapshot?.windows.first.map { "X \($0.remainingPercentage)%" }
+        return [claude, codex].compactMap { $0 }.joined(separator: " · ").isEmpty ? "—%" : [claude, codex].compactMap { $0 }.joined(separator: " · ")
     }
 
     func refresh() async {
@@ -45,19 +50,30 @@ final class UsageStore: ObservableObject {
         isRefreshing = true
         defer { isRefreshing = false }
 
-        do {
-            let freshSnapshot = try await client.fetch()
+        async let claudeResult: Result<UsageSnapshot, UsageError> = fetchClaudeResult()
+        async let codexResult: Result<CodexUsageSnapshot, UsageError> = fetchCodexResult()
+
+        let claude = await claudeResult
+        let codex = await codexResult
+        var failures: [UsageError] = []
+        switch claude {
+        case .success(let freshSnapshot):
             snapshot = freshSnapshot
-            connectionState = .live
             SnapshotCache.save(freshSnapshot)
-        } catch UsageError.claudeNotInstalled {
-            connectionState = .authentication("Install Claude Code, then sign in")
-        } catch UsageError.claudeCommandFailed {
-            connectionState = .authentication("Open Claude Code and sign in")
-        } catch UsageError.usageOutputInvalid {
-            connectionState = .offline("Claude Code usage format changed")
-        } catch {
-            connectionState = .offline("Offline — retrying")
+        case .failure(let error): failures.append(error)
+        }
+        switch codex {
+        case .success(let freshSnapshot):
+            codexSnapshot = freshSnapshot
+            SnapshotCache.saveCodex(freshSnapshot)
+        case .failure(let error): failures.append(error)
+        }
+        if snapshot != nil || codexSnapshot != nil {
+            connectionState = .live
+        } else if failures.contains(.claudeNotInstalled) || failures.contains(.codexNotInstalled) {
+            connectionState = .authentication("Install and sign in to Claude Code or Codex")
+        } else {
+            connectionState = .offline("Usage unavailable — retrying")
         }
     }
 
@@ -72,6 +88,18 @@ final class UsageStore: ObservableObject {
             }
             await refresh()
         }
+    }
+
+    private func fetchClaudeResult() async -> Result<UsageSnapshot, UsageError> {
+        do { return .success(try await client.fetch()) }
+        catch let error as UsageError { return .failure(error) }
+        catch { return .failure(.claudeCommandFailed(error.localizedDescription)) }
+    }
+
+    private func fetchCodexResult() async -> Result<CodexUsageSnapshot, UsageError> {
+        do { return .success(try await codexClient.fetch()) }
+        catch let error as UsageError { return .failure(error) }
+        catch { return .failure(.codexCommandFailed(error.localizedDescription)) }
     }
 
     private static func percent(_ value: Double) -> String {

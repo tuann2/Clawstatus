@@ -40,6 +40,30 @@ do {
         // Expected.
     }
 
+    let codexResponse = """
+    {"id":2,"result":{"rateLimitsByLimitId":{"codex":{"primary":{"usedPercent":24,"windowDurationMins":300,"resetsAt":1784000000},"secondary":{"usedPercent":130,"windowDurationMins":10080,"resetsAt":1784500000}}},"planType":"plus"}}
+    """
+    let codex = try CodexUsageParser.snapshot(from: codexResponse, now: now)
+    try require(codex.windows.count == 2, "Codex primary and secondary windows were not decoded")
+    try require(codex.windows[0].remainingPercentage == 76, "Codex remaining usage was incorrect")
+    try require(codex.windows[1].remainingPercentage == 0, "Codex percentage was not clamped")
+    try require(codex.windows[0].durationLabel == "5-hour", "Codex hourly duration label was incorrect")
+    try require(codex.windows[1].durationLabel == "7-day", "Codex weekly duration label was incorrect")
+
+    let primaryOnly = """
+    {"id":2,"result":{"rateLimits":{"primary":{"usedPercent":47,"windowDurationMins":10080}}}}
+    """
+    let weekly = try CodexUsageParser.snapshot(from: primaryOnly, now: now)
+    try require(weekly.windows.count == 1, "primary-only Codex response produced a fake window")
+    try require(weekly.windows[0].durationLabel == "7-day", "primary-only weekly label was incorrect")
+
+    do {
+        _ = try CodexUsageParser.snapshot(from: "{\"id\":2,\"result\":{}}", now: now)
+        throw CheckFailure.unexpected("invalid Codex response was accepted")
+    } catch UsageError.codexOutputInvalid {
+        // Expected.
+    }
+
     print("Clawstatus checks passed")
 } catch {
     FileHandle.standardError.write(Data("Clawstatus check failed: \(error)\n".utf8))

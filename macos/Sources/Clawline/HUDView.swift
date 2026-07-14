@@ -59,6 +59,7 @@ struct HUDView: View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             VStack(spacing: showsReset ? 17 : 12) {
                 if let snapshot = store.snapshot {
+                    ProviderLabel(name: "Claude", showsReset: showsReset)
                     UsageMeter(
                         label: showsReset ? "5-hour" : "5h",
                         window: snapshot.fiveHour,
@@ -73,9 +74,15 @@ struct HUDView: View {
                         tint: .secondary,
                         showsReset: showsReset
                     )
-                } else {
+                }
+                if let codex = store.codexSnapshot {
+                    ProviderLabel(name: "Codex", showsReset: showsReset)
+                    ForEach(codex.windows) { window in
+                        CodexUsageMeter(window: window, now: context.date, tint: .blue, showsReset: showsReset)
+                    }
+                }
+                if store.snapshot == nil && store.codexSnapshot == nil {
                     PlaceholderMeter(label: showsReset ? "5-hour" : "5h")
-                    PlaceholderMeter(label: showsReset ? "7-day" : "7d")
                 }
             }
         }
@@ -282,6 +289,35 @@ private struct UsageMeter: View {
         }
         if hours > 0 { return "in \(hours)h \(minutes)m" }
         return "in \(minutes)m"
+    }
+}
+
+private struct ProviderLabel: View {
+    let name: String
+    let showsReset: Bool
+
+    var body: some View {
+        Text(name)
+            .font(.system(size: showsReset ? 11 : 9, weight: .bold))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct CodexUsageMeter: View {
+    let window: CodexUsageWindow
+    let now: Date
+    let tint: Color
+    let showsReset: Bool
+
+    var body: some View {
+        UsageMeter(
+            label: window.durationLabel,
+            window: UsageWindow(utilization: Double(window.clampedUsedPercent), resetsAt: window.resetsAt),
+            now: now,
+            tint: tint,
+            showsReset: showsReset
+        )
     }
 }
 

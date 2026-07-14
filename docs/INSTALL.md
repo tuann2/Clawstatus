@@ -6,12 +6,14 @@
 - macOS 13 Ventura or newer
 - Homebrew
 - Claude Code installed, updated, and signed in
+- Codex CLI installed, updated, and signed in (optional; Claude remains usable without it)
 
 Verify Claude Code first:
 
 ```bash
 claude --version
 claude auth status
+codex login
 ```
 
 ## Install with Homebrew
@@ -40,16 +42,17 @@ xattr -dr com.apple.quarantine /Applications/Clawstatus.app
 
 ## Usage
 
-- The menu bar always shows the remaining percentage of the current 5-hour
-  session.
+- The menu bar shows remaining usage as `C` (Claude) and `X` (Codex), for example
+  `C 76% · X 47%`. It omits a provider that has no available snapshot.
 - Click the percentage to open the card.
 - Double-click the card to toggle Compact size.
 - Right-click the card to choose Compact/Full size and opacity
   (100%, 85%, 70%, or 55%).
-- Compact size shows only the two usage percentages and progress bars.
+- Compact size shows provider bars and percentages only, without reset times.
 - Size and opacity are remembered after quitting or restarting the Mac.
-- Clawstatus refreshes through the official Claude Code `/usage` command every
-  60 seconds. It does not read or store OAuth tokens.
+- Clawstatus refreshes every 60 seconds through Claude Code `/usage` and a
+  short-lived official Codex app-server process. It does not read, store, log,
+  or refresh OAuth tokens, including `~/.codex/auth.json`.
 
 ## Uninstall
 

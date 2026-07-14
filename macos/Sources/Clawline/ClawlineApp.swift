@@ -87,6 +87,7 @@ struct ClawstatusApp: App {
         } label: {
             Text(store.menuLabel)
                 .monospacedDigit()
+                .help("C = Claude remaining usage · X = Codex remaining usage")
         }
         .menuBarExtraStyle(.window)
     }

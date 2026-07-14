@@ -9,6 +9,139 @@ public struct UsageClient: Sendable {
     }
 }
 
+public struct CodexUsageClient: Sendable {
+    public init() {}
+
+    public func fetch(appVersion: String = "0.4.0") async throws -> CodexUsageSnapshot {
+        let response = try await CodexUsageCommand.run(appVersion: appVersion)
+        return try CodexUsageParser.snapshot(from: response)
+    }
+}
+
+private final class CodexProcessState: @unchecked Sendable {
+    let process = Process()
+    let input = Pipe()
+    let output = Pipe()
+    let error = Pipe()
+    let continuation: CheckedContinuation<String, Error>
+    private let lock = NSLock()
+    private var completed = false
+    private var buffer = Data()
+
+    init(_ continuation: CheckedContinuation<String, Error>) {
+        self.continuation = continuation
+    }
+
+    func finish(_ result: Result<String, Error>) {
+        lock.lock()
+        guard !completed else { lock.unlock(); return }
+        completed = true
+        lock.unlock()
+        output.fileHandleForReading.readabilityHandler = nil
+        error.fileHandleForReading.readabilityHandler = nil
+        if process.isRunning { process.terminate() }
+        continuation.resume(with: result)
+    }
+
+    func send(_ request: [String: Any]) throws {
+        let data = try JSONSerialization.data(withJSONObject: request)
+        input.fileHandleForWriting.write(data)
+        input.fileHandleForWriting.write(Data("\n".utf8))
+    }
+
+    func handleOutput(_ data: Data) {
+        guard !data.isEmpty else { return }
+        lock.lock()
+        buffer.append(data)
+        var lines = buffer.split(separator: 10, omittingEmptySubsequences: true)
+        buffer = buffer.last == 10 ? Data() : Data(lines.popLast().map(Array.init) ?? [])
+        lock.unlock()
+        for line in lines {
+            guard let object = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
+                  let id = object["id"] as? Int else { continue }
+            if id == 1, object["result"] != nil {
+                do {
+                    try send(["method": "initialized"])
+                    try send(["id": 2, "method": "account/rateLimits/read", "params": NSNull()])
+                } catch { finish(.failure(UsageError.codexCommandFailed(error.localizedDescription))) }
+            } else if id == 2 {
+                guard object["result"] != nil,
+                      let text = String(data: Data(line), encoding: .utf8) else {
+                    finish(.failure(UsageError.codexOutputInvalid)); return
+                }
+                finish(.success(text))
+            }
+        }
+    }
+}
+
+enum CodexUsageCommand {
+    private static let candidates = [
+        "/opt/homebrew/bin/codex",
+        "/usr/local/bin/codex",
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin/codex").path,
+    ]
+
+    static func run(appVersion: String) async throws -> String {
+        guard let executable = candidates.first(where: FileManager.default.isExecutableFile) else {
+            throw UsageError.codexNotInstalled
+        }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                let state = CodexProcessState(continuation)
+                state.output.fileHandleForReading.readabilityHandler = { state.handleOutput($0.availableData) }
+                // Consume stderr as the server runs; leaving this pipe unread can deadlock a child process.
+                state.error.fileHandleForReading.readabilityHandler = { handle in
+                    _ = handle.availableData
+                }
+
+                do {
+                    state.process.executableURL = URL(fileURLWithPath: executable)
+                    state.process.arguments = ["app-server", "--stdio"]
+                    state.process.standardInput = state.input
+                    state.process.standardOutput = state.output
+                    state.process.standardError = state.error
+                    try state.process.run()
+                    try state.send([
+                        "id": 1,
+                        "method": "initialize",
+                        "params": [
+                            "clientInfo": ["name": "clawstatus", "version": appVersion],
+                            "capabilities": ["experimentalApi": true],
+                        ],
+                    ])
+                    DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 12) {
+                        state.finish(.failure(UsageError.codexCommandFailed("Timed out waiting for Codex CLI")))
+                    }
+                } catch {
+                    state.finish(.failure(UsageError.codexCommandFailed(error.localizedDescription)))
+                }
+            }
+        }
+    }
+}
+
+public enum CodexUsageParser {
+    public static func snapshot(from response: String, now: Date = Date()) throws -> CodexUsageSnapshot {
+        guard let data = response.data(using: .utf8),
+              let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let result = envelope["result"] as? [String: Any] else { throw UsageError.codexOutputInvalid }
+        let limits = (result["rateLimitsByLimitId"] as? [String: Any])?["codex"] as? [String: Any]
+            ?? result["rateLimits"] as? [String: Any]
+        guard let limits else { throw UsageError.codexOutputInvalid }
+        let windows = [("primary", limits["primary"]), ("secondary", limits["secondary"])].compactMap { id, value -> CodexUsageWindow? in
+            guard let value = value as? [String: Any], let used = value["usedPercent"] as? Int else { return nil }
+            let duration = value["windowDurationMins"] as? Int
+            let reset = (value["resetsAt"] as? Double).map(Date.init(timeIntervalSince1970:))
+                ?? (value["resetsAt"] as? Int).map { Date(timeIntervalSince1970: TimeInterval($0)) }
+            return CodexUsageWindow(id: id, usedPercent: used, windowDurationMins: duration, resetsAt: reset)
+        }
+        guard !windows.isEmpty else { throw UsageError.codexOutputInvalid }
+        return CodexUsageSnapshot(windows: windows, planType: result["planType"] as? String, capturedAt: now)
+    }
+}
+
 enum ClaudeUsageCommand {
     private static let candidates = [
         "/opt/homebrew/bin/claude",
@@ -144,8 +277,27 @@ public enum SnapshotCache {
     }
 
     public static func save(_ snapshot: UsageSnapshot) {
+        save(snapshot, to: fileURL)
+    }
+
+    public static func loadCodex() -> CodexUsageSnapshot? {
+        load(CodexUsageSnapshot.self, from: fileURL.deletingLastPathComponent().appendingPathComponent("codex-state.json"))
+    }
+
+    public static func saveCodex(_ snapshot: CodexUsageSnapshot) {
+        save(snapshot, to: fileURL.deletingLastPathComponent().appendingPathComponent("codex-state.json"))
+    }
+
+    private static func load<T: Decodable>(_ type: T.Type, from url: URL) -> T? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try? decoder.decode(T.self, from: data)
+    }
+
+    private static func save<T: Encodable>(_ snapshot: T, to url: URL) {
         do {
-            let directory = fileURL.deletingLastPathComponent()
+            let directory = url.deletingLastPathComponent()
             try FileManager.default.createDirectory(
                 at: directory,
                 withIntermediateDirectories: true
@@ -153,7 +305,7 @@ public enum SnapshotCache {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             let data = try encoder.encode(snapshot)
-            try data.write(to: fileURL, options: .atomic)
+            try data.write(to: url, options: .atomic)
         } catch {
             // The cache contains convenience data only. Polling continues if it cannot be saved.
         }
