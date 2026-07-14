@@ -12,6 +12,10 @@ public struct UsageWindow: Codable, Equatable, Sendable {
     public var clampedUtilization: Double {
         min(max(utilization, 0), 100)
     }
+
+    public var remainingPercentage: Double {
+        100 - clampedUtilization
+    }
 }
 
 public struct UsageSnapshot: Codable, Equatable, Sendable {

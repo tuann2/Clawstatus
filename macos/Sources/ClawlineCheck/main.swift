@@ -26,6 +26,8 @@ do {
     try require(snapshot.fiveHour.resetsAt != nil, "reset timestamp was not decoded")
     try require(snapshot.sevenDay.resetsAt != nil, "minuteless reset timestamp was not decoded")
     try require(UsageWindow(utilization: 120, resetsAt: nil).clampedUtilization == 100, "usage was not clamped")
+    try require(snapshot.fiveHour.remainingPercentage == 68, "5-hour remaining usage was incorrect")
+    try require(UsageWindow(utilization: 120, resetsAt: nil).remainingPercentage == 0, "remaining usage was not clamped")
 
     let commaReport = report.replacingOccurrences(of: " at ", with: ", ")
     let commaSnapshot = try ClaudeUsageParser.snapshot(from: commaReport, now: now)
@@ -38,8 +40,8 @@ do {
         // Expected.
     }
 
-    print("Clawline checks passed")
+    print("Clawstatus checks passed")
 } catch {
-    FileHandle.standardError.write(Data("Clawline check failed: \(error)\n".utf8))
+    FileHandle.standardError.write(Data("Clawstatus check failed: \(error)\n".utf8))
     exit(1)
 }

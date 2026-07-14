@@ -36,8 +36,8 @@ final class UsageStore: ObservableObject {
     }
 
     var menuLabel: String {
-        guard let snapshot else { return "Clawline" }
-        return "5h \(Self.percent(snapshot.fiveHour.utilization)) · 7d \(Self.percent(snapshot.sevenDay.utilization))"
+        guard let snapshot else { return "Clawstatus" }
+        return "5h \(Self.percent(snapshot.fiveHour.remainingPercentage)) left"
     }
 
     func refresh() async {

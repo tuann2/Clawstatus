@@ -5,7 +5,7 @@
 This repository contains a native macOS menu-bar application:
 
 - `macos/Sources/Clawline/` — SwiftUI and AppKit interface
-- `macos/Sources/ClawlineCore/` — Keychain, polling, parsing, and cache logic
+- `macos/Sources/ClawlineCore/` — Claude CLI polling, parsing, and cache logic
 - `macos/Sources/ClawlineCheck/` — dependency-free verification executable
 - `macos/Resources/` — application bundle metadata
 - `macos/scripts/` — build and packaging scripts
@@ -15,8 +15,8 @@ This repository contains a native macOS menu-bar application:
 Run from the repository root:
 
 - `swift run --package-path macos ClawlineCheck` — validate parsing and credential handling
-- `./macos/scripts/build-app.sh` — build and locally ad-hoc-sign `macos/dist/Clawline.app`
-- `open macos/dist/Clawline.app` — launch the packaged menu-bar app
+- `./macos/scripts/build-app.sh` — build and locally ad-hoc-sign `macos/dist/Clawstatus.app`
+- `open macos/dist/Clawstatus.app` — launch the packaged menu-bar app
 
 ## Coding Style
 
@@ -27,5 +27,5 @@ Run from the repository root:
 
 ## Commit Guidance
 
-- Use short imperative messages, for example `Add Keychain credential reader`.
+- Use short imperative messages, for example `Add Claude usage parser`.
 - Keep source and generated artifacts separate. Do not commit `macos/.build/` or `macos/dist/`.

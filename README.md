@@ -1,6 +1,6 @@
-# Clawline for macOS
+# Clawstatus for macOS
 
-Clawline is a small native macOS menu-bar monitor for Claude Code usage limits.
+Clawstatus is a small native macOS menu-bar monitor for Claude Code usage limits.
 It is built with SwiftUI, uses no third-party dependencies, and does not use a
 browser or webview.
 
@@ -9,10 +9,11 @@ browser or webview.
 - Runs the installed Claude Code CLI headlessly with
   `claude -p --no-session-persistence /usage` every 60 seconds and reads its
   plain-text usage report.
-- Shows the 5-hour and 7-day usage windows in the menu bar.
+- Shows the remaining percentage of the current 5-hour session in the menu bar.
+- Shows the 5-hour and 7-day usage windows in the floating HUD.
 - Opens a small floating HUD on launch and keeps a menu-bar control for reopening.
 - Keeps the last successful usage snapshot in
-  `~/Library/Application Support/Clawline/state.json`.
+  `~/Library/Application Support/Clawstatus/state.json`.
 - Never reads, saves, logs, or refreshes OAuth tokens; Claude Code handles its
   own authentication and the only saved data is the last usage snapshot.
 - The **Sign in** action opens the installed Claude Code CLI in Terminal; after
@@ -26,10 +27,10 @@ Requires macOS 13 or newer and Apple Command Line Tools.
 cd macos
 swift run ClawlineCheck
 ./scripts/build-app.sh
-open dist/Clawline.app
+open dist/Clawstatus.app
 ```
 
-The packaged application is written to `macos/dist/Clawline.app`. It is signed
+The packaged application is written to `macos/dist/Clawstatus.app`. It is signed
 ad hoc for local use and is not uploaded or distributed by the build script.
 
 ## Project layout

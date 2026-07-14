@@ -42,7 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 @main
-struct ClawlineApp: App {
+struct ClawstatusApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var store = UsageStore.shared
 

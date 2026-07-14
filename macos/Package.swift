@@ -3,10 +3,10 @@
 import PackageDescription
 
 let package = Package(
-    name: "Clawline",
+    name: "Clawstatus",
     platforms: [.macOS(.v13)],
     products: [
-        .executable(name: "Clawline", targets: ["Clawline"]),
+        .executable(name: "Clawstatus", targets: ["Clawline"]),
     ],
     targets: [
         .target(

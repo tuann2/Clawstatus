@@ -53,7 +53,7 @@ struct HUDView: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(coral)
 
-            Text("Clawline")
+            Text("Clawstatus")
                 .font(.system(size: 13, weight: .semibold))
 
             Spacer()
@@ -129,7 +129,7 @@ struct HUDView: View {
                 Image(systemName: "power")
             }
             .buttonStyle(.plain)
-            .help("Quit Clawline")
+            .help("Quit Clawstatus")
         }
         .foregroundStyle(.secondary)
         .padding(.horizontal, 18)
