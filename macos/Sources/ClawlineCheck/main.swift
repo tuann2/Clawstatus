@@ -41,7 +41,7 @@ do {
     }
 
     let codexResponse = """
-    {"id":2,"result":{"rateLimitsByLimitId":{"codex":{"primary":{"usedPercent":24,"windowDurationMins":300,"resetsAt":1784000000},"secondary":{"usedPercent":130,"windowDurationMins":10080,"resetsAt":1784500000}}},"planType":"plus"}}
+    {"id":2,"result":{"rateLimitsByLimitId":{"codex":{"planType":"plus","primary":{"usedPercent":24,"windowDurationMins":300,"resetsAt":1784000000},"secondary":{"usedPercent":130,"windowDurationMins":10080,"resetsAt":1784500000}}}}}
     """
     let codex = try CodexUsageParser.snapshot(from: codexResponse, now: now)
     try require(codex.windows.count == 2, "Codex primary and secondary windows were not decoded")
@@ -49,6 +49,7 @@ do {
     try require(codex.windows[1].remainingPercentage == 0, "Codex percentage was not clamped")
     try require(codex.windows[0].durationLabel == "5-hour", "Codex hourly duration label was incorrect")
     try require(codex.windows[1].durationLabel == "7-day", "Codex weekly duration label was incorrect")
+    try require(codex.planType == "plus", "Codex plan type was not decoded from rate limits")
 
     let primaryOnly = """
     {"id":2,"result":{"rateLimits":{"primary":{"usedPercent":47,"windowDurationMins":10080}}}}

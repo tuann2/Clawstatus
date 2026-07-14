@@ -39,6 +39,7 @@ private final class CodexProcessState: @unchecked Sendable {
         lock.unlock()
         output.fileHandleForReading.readabilityHandler = nil
         error.fileHandleForReading.readabilityHandler = nil
+        input.fileHandleForWriting.closeFile()
         if process.isRunning { process.terminate() }
         continuation.resume(with: result)
     }
@@ -47,6 +48,26 @@ private final class CodexProcessState: @unchecked Sendable {
         let data = try JSONSerialization.data(withJSONObject: request)
         input.fileHandleForWriting.write(data)
         input.fileHandleForWriting.write(Data("\n".utf8))
+    }
+
+    func start(executable: String, appVersion: String) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !completed else { throw CancellationError() }
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = ["app-server", "--stdio"]
+        process.standardInput = input
+        process.standardOutput = output
+        process.standardError = error
+        try process.run()
+        try send([
+            "id": 1,
+            "method": "initialize",
+            "params": [
+                "clientInfo": ["name": "clawstatus", "version": appVersion],
+                "capabilities": ["experimentalApi": true],
+            ],
+        ])
     }
 
     func handleOutput(_ data: Data) {
@@ -59,6 +80,10 @@ private final class CodexProcessState: @unchecked Sendable {
         for line in lines {
             guard let object = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
                   let id = object["id"] as? Int else { continue }
+            if object["error"] != nil {
+                finish(.failure(UsageError.codexCommandFailed("Codex app-server returned an error")))
+                return
+            }
             if id == 1, object["result"] != nil {
                 do {
                     try send(["method": "initialized"])
@@ -75,6 +100,29 @@ private final class CodexProcessState: @unchecked Sendable {
     }
 }
 
+private final class CodexProcessBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var state: CodexProcessState?
+    private var cancelled = false
+
+    func install(_ state: CodexProcessState) -> Bool {
+        lock.lock()
+        self.state = state
+        let shouldCancel = cancelled
+        lock.unlock()
+        if shouldCancel { state.finish(.failure(CancellationError())) }
+        return !shouldCancel
+    }
+
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        let state = state
+        lock.unlock()
+        state?.finish(.failure(CancellationError()))
+    }
+}
+
 enum CodexUsageCommand {
     private static let candidates = [
         "/opt/homebrew/bin/codex",
@@ -87,37 +135,30 @@ enum CodexUsageCommand {
             throw UsageError.codexNotInstalled
         }
 
-        return try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .utility).async {
-                let state = CodexProcessState(continuation)
-                state.output.fileHandleForReading.readabilityHandler = { state.handleOutput($0.availableData) }
-                // Consume stderr as the server runs; leaving this pipe unread can deadlock a child process.
-                state.error.fileHandleForReading.readabilityHandler = { handle in
-                    _ = handle.availableData
-                }
-
-                do {
-                    state.process.executableURL = URL(fileURLWithPath: executable)
-                    state.process.arguments = ["app-server", "--stdio"]
-                    state.process.standardInput = state.input
-                    state.process.standardOutput = state.output
-                    state.process.standardError = state.error
-                    try state.process.run()
-                    try state.send([
-                        "id": 1,
-                        "method": "initialize",
-                        "params": [
-                            "clientInfo": ["name": "clawstatus", "version": appVersion],
-                            "capabilities": ["experimentalApi": true],
-                        ],
-                    ])
-                    DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 12) {
-                        state.finish(.failure(UsageError.codexCommandFailed("Timed out waiting for Codex CLI")))
+        let box = CodexProcessBox()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: .utility).async {
+                    let state = CodexProcessState(continuation)
+                    guard box.install(state) else { return }
+                    state.output.fileHandleForReading.readabilityHandler = { state.handleOutput($0.availableData) }
+                    // Consume stderr as the server runs; leaving this pipe unread can deadlock a child process.
+                    state.error.fileHandleForReading.readabilityHandler = { handle in
+                        _ = handle.availableData
                     }
-                } catch {
-                    state.finish(.failure(UsageError.codexCommandFailed(error.localizedDescription)))
+
+                    do {
+                        try state.start(executable: executable, appVersion: appVersion)
+                        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 12) {
+                            state.finish(.failure(UsageError.codexCommandFailed("Timed out waiting for Codex CLI")))
+                        }
+                    } catch {
+                        state.finish(.failure(UsageError.codexCommandFailed(error.localizedDescription)))
+                    }
                 }
             }
+        } onCancel: {
+            box.cancel()
         }
     }
 }
@@ -138,7 +179,7 @@ public enum CodexUsageParser {
             return CodexUsageWindow(id: id, usedPercent: used, windowDurationMins: duration, resetsAt: reset)
         }
         guard !windows.isEmpty else { throw UsageError.codexOutputInvalid }
-        return CodexUsageSnapshot(windows: windows, planType: result["planType"] as? String, capturedAt: now)
+        return CodexUsageSnapshot(windows: windows, planType: limits["planType"] as? String, capturedAt: now)
     }
 }
 

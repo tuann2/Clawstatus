@@ -126,7 +126,7 @@ struct HUDView: View {
                     .labelStyle(CompactStatusLabelStyle())
             }
             .buttonStyle(.plain)
-            .help("Open Terminal, then run claude to sign in")
+            .help("Open Terminal, then run claude or codex login to sign in")
         case .offline:
             Label("Offline", systemImage: "wifi.slash")
                 .font(.system(size: 10, weight: .medium))
@@ -220,7 +220,8 @@ struct HUDView: View {
         case .authentication(let message), .offline(let message):
             return message
         case .live:
-            guard let capturedAt = store.snapshot?.capturedAt else { return "Live" }
+            if let unavailable = store.availabilityMessage { return unavailable }
+            guard let capturedAt = store.newestCapturedAt else { return "Live" }
             let seconds = max(0, Int(now.timeIntervalSince(capturedAt)))
             return seconds < 2 ? "Updated now" : "Updated \(seconds)s ago"
         }

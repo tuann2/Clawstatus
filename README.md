@@ -28,8 +28,9 @@ browser or webview.
   `~/Library/Application Support/Clawstatus/`.
 - Never reads, saves, logs, or refreshes OAuth tokens or `~/.codex/auth.json`;
   the official CLIs own authentication and the only saved data is usage snapshots.
-- The **Sign in** action opens Terminal. Run `claude` there to authenticate,
-  then use refresh or wait for the next 60-second poll.
+- The **Sign in** action opens Terminal. Run `claude` to authenticate Claude Code
+  or `codex login` to authenticate Codex, then use refresh or wait for the next
+  60-second poll.
 
 ## Build
 

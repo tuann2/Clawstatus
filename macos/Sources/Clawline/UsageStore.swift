@@ -12,8 +12,16 @@ final class UsageStore: ObservableObject {
         case offline(String)
     }
 
+    enum ProviderState: Equatable {
+        case loading
+        case live
+        case unavailable(String)
+    }
+
     @Published private(set) var snapshot: UsageSnapshot?
     @Published private(set) var codexSnapshot: CodexUsageSnapshot?
+    @Published private(set) var claudeState: ProviderState = .loading
+    @Published private(set) var codexState: ProviderState = .loading
     @Published private(set) var connectionState: ConnectionState = .loading
     @Published private(set) var isRefreshing = false
 
@@ -28,6 +36,8 @@ final class UsageStore: ObservableObject {
         codexSnapshot = SnapshotCache.loadCodex()
         if snapshot != nil || codexSnapshot != nil {
             connectionState = .live
+            claudeState = snapshot == nil ? .loading : .live
+            codexState = codexSnapshot == nil ? .loading : .live
         }
 
         pollingTask = Task { [weak self] in
@@ -42,7 +52,19 @@ final class UsageStore: ObservableObject {
     var menuLabel: String {
         let claude = snapshot.map { "C \(Self.percent($0.fiveHour.remainingPercentage))" }
         let codex = codexSnapshot?.windows.first.map { "X \($0.remainingPercentage)%" }
-        return [claude, codex].compactMap { $0 }.joined(separator: " · ").isEmpty ? "—%" : [claude, codex].compactMap { $0 }.joined(separator: " · ")
+        let labels = [claude, codex].compactMap { $0 }
+        return labels.isEmpty ? "—%" : labels.joined(separator: " · ")
+    }
+
+    var newestCapturedAt: Date? {
+        [snapshot?.capturedAt, codexSnapshot?.capturedAt].compactMap { $0 }.max()
+    }
+
+    var availabilityMessage: String? {
+        [claudeState, codexState].compactMap { state in
+            if case .unavailable(let message) = state { return message }
+            return nil
+        }.joined(separator: " · ").nilIfEmpty
     }
 
     func refresh() async {
@@ -59,14 +81,20 @@ final class UsageStore: ObservableObject {
         switch claude {
         case .success(let freshSnapshot):
             snapshot = freshSnapshot
+            claudeState = .live
             SnapshotCache.save(freshSnapshot)
-        case .failure(let error): failures.append(error)
+        case .failure(let error):
+            failures.append(error)
+            claudeState = .unavailable(Self.message(for: error, provider: "Claude"))
         }
         switch codex {
         case .success(let freshSnapshot):
             codexSnapshot = freshSnapshot
+            codexState = .live
             SnapshotCache.saveCodex(freshSnapshot)
-        case .failure(let error): failures.append(error)
+        case .failure(let error):
+            failures.append(error)
+            codexState = .unavailable(Self.message(for: error, provider: "Codex"))
         }
         if snapshot != nil || codexSnapshot != nil {
             connectionState = .live
@@ -105,4 +133,17 @@ final class UsageStore: ObservableObject {
     private static func percent(_ value: Double) -> String {
         "\(Int(value.rounded()))%"
     }
+
+    private static func message(for error: UsageError, provider: String) -> String {
+        switch error {
+        case .claudeNotInstalled, .codexNotInstalled:
+            "\(provider) unavailable — install and sign in"
+        default:
+            "\(provider) unavailable"
+        }
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }

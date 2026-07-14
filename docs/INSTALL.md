@@ -8,12 +8,13 @@
 - Claude Code installed, updated, and signed in
 - Codex CLI installed, updated, and signed in (optional; Claude remains usable without it)
 
-Verify Claude Code first:
+Verify both installed CLIs:
 
 ```bash
 claude --version
 claude auth status
-codex login
+codex --version
+codex login status
 ```
 
 ## Install with Homebrew

@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panel: NSPanel?
     private var hostingView: NSHostingView<HUDView>?
     private var compactObserver: AnyCancellable?
+    private var contentObserver: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
@@ -52,6 +53,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.resizeHUD()
                 }
             }
+        contentObserver = Publishers.CombineLatest(UsageStore.shared.$snapshot, UsageStore.shared.$codexSnapshot)
+            .map { claude, codex in
+                HUDContentShape(claudeWindows: claude == nil ? 1 : 2, codexWindows: codex?.windows.count ?? 0)
+            }
+            .removeDuplicates()
+            .dropFirst()
+            .debounce(for: .milliseconds(80), scheduler: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.resizeHUD()
+            }
     }
 
     private func resizeHUD() {
@@ -73,6 +84,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             animate: true
         )
     }
+}
+
+private struct HUDContentShape: Equatable {
+    let claudeWindows: Int
+    let codexWindows: Int
 }
 
 @main
