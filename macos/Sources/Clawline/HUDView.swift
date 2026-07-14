@@ -4,47 +4,81 @@ import SwiftUI
 
 struct HUDView: View {
     @ObservedObject var store: UsageStore
+    @ObservedObject var preferences: UIPreferences
 
     private let coral = Color(red: 1.0, green: 0.47, blue: 0.42)
     private let graphite = Color(red: 0.075, green: 0.082, blue: 0.094)
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-
-            VStack(spacing: 17) {
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    if let snapshot = store.snapshot {
-                        UsageMeter(
-                            label: "5-hour",
-                            window: snapshot.fiveHour,
-                            now: context.date,
-                            tint: coral
-                        )
-                        UsageMeter(
-                            label: "7-day",
-                            window: snapshot.sevenDay,
-                            now: context.date,
-                            tint: .secondary
-                        )
-                    } else {
-                        emptyMeters
-                    }
-                }
+        Group {
+            if preferences.isCompact {
+                compactCard
+            } else {
+                fullCard
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 17)
-
-            footer
         }
-        .frame(width: 310)
         .background(graphite)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(Color.white.opacity(0.12), lineWidth: 1)
         }
+        .opacity(preferences.opacity)
+        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .simultaneousGesture(
+            TapGesture(count: 2).onEnded {
+                preferences.toggleCompact()
+            }
+        )
+        .contextMenu { cardMenu }
+        .animation(.easeInOut(duration: 0.18), value: preferences.isCompact)
+        .animation(.easeInOut(duration: 0.12), value: preferences.opacity)
         .preferredColorScheme(.dark)
+    }
+
+    private var fullCard: some View {
+        VStack(spacing: 0) {
+            header
+            meters(showsReset: true)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 17)
+            footer
+        }
+        .frame(width: 310)
+    }
+
+    private var compactCard: some View {
+        meters(showsReset: false)
+            .padding(.horizontal, 13)
+            .padding(.vertical, 12)
+            .frame(width: 170)
+    }
+
+    @ViewBuilder
+    private func meters(showsReset: Bool) -> some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            VStack(spacing: showsReset ? 17 : 12) {
+                if let snapshot = store.snapshot {
+                    UsageMeter(
+                        label: showsReset ? "5-hour" : "5h",
+                        window: snapshot.fiveHour,
+                        now: context.date,
+                        tint: coral,
+                        showsReset: showsReset
+                    )
+                    UsageMeter(
+                        label: showsReset ? "7-day" : "7d",
+                        window: snapshot.sevenDay,
+                        now: context.date,
+                        tint: .secondary,
+                        showsReset: showsReset
+                    )
+                } else {
+                    PlaceholderMeter(label: showsReset ? "5-hour" : "5h")
+                    PlaceholderMeter(label: showsReset ? "7-day" : "7d")
+                }
+            }
+        }
     }
 
     private var header: some View {
@@ -57,7 +91,6 @@ struct HUDView: View {
                 .font(.system(size: 13, weight: .semibold))
 
             Spacer()
-
             statusLabel
         }
         .padding(.horizontal, 18)
@@ -86,7 +119,7 @@ struct HUDView: View {
                     .labelStyle(CompactStatusLabelStyle())
             }
             .buttonStyle(.plain)
-            .help("Open Claude Code sign-in in Terminal")
+            .help("Open Terminal, then run claude to sign in")
         case .offline:
             Label("Offline", systemImage: "wifi.slash")
                 .font(.system(size: 10, weight: .medium))
@@ -95,10 +128,38 @@ struct HUDView: View {
         }
     }
 
-    private var emptyMeters: some View {
-        VStack(spacing: 15) {
-            PlaceholderMeter(label: "5-hour")
-            PlaceholderMeter(label: "7-day")
+    @ViewBuilder
+    private var cardMenu: some View {
+        Button {
+            preferences.toggleCompact()
+        } label: {
+            Label(
+                preferences.isCompact ? "Full size" : "Compact size",
+                systemImage: preferences.isCompact ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left"
+            )
+        }
+
+        Menu("Opacity") {
+            ForEach(UIPreferences.opacityLevels, id: \.self) { level in
+                Button {
+                    preferences.selectOpacity(level)
+                } label: {
+                    HStack {
+                        Text("\(Int(level * 100))%")
+                        if preferences.opacity == level {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        }
+
+        Divider()
+        Button("Refresh now") {
+            Task { await store.refresh() }
+        }
+        Button("Quit Clawstatus") {
+            NSApplication.shared.terminate(nil)
         }
     }
 
@@ -141,12 +202,8 @@ struct HUDView: View {
     }
 
     private var footerColor: Color {
-        switch store.connectionState {
-        case .authentication:
-            coral
-        default:
-            .secondary
-        }
+        if case .authentication = store.connectionState { return coral }
+        return .secondary
     }
 
     private func footerText(now: Date) -> String {
@@ -176,16 +233,17 @@ private struct UsageMeter: View {
     let window: UsageWindow
     let now: Date
     let tint: Color
+    let showsReset: Bool
 
     var body: some View {
-        VStack(spacing: 7) {
+        VStack(spacing: showsReset ? 7 : 5) {
             HStack(alignment: .firstTextBaseline) {
                 Text(label)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
                 Text("\(Int(window.clampedUtilization.rounded()))%")
-                    .font(.system(size: 24, weight: .semibold, design: .rounded))
+                    .font(.system(size: showsReset ? 24 : 15, weight: .semibold, design: .rounded))
                     .monospacedDigit()
             }
 
@@ -193,17 +251,24 @@ private struct UsageMeter: View {
                 .progressViewStyle(.linear)
                 .tint(tint)
 
-            HStack {
-                Text("Resets")
-                Spacer()
-                Text(resetText)
-                    .monospacedDigit()
+            if showsReset {
+                HStack {
+                    Text("Resets")
+                    Spacer()
+                    Text(resetText)
+                        .monospacedDigit()
+                }
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
             }
-            .font(.system(size: 10))
-            .foregroundStyle(.secondary)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(label) usage \(Int(window.clampedUtilization.rounded())) percent, resets \(resetText)")
+        .accessibilityLabel(accessibilityText)
+    }
+
+    private var accessibilityText: String {
+        let usage = "\(label) usage \(Int(window.clampedUtilization.rounded())) percent"
+        return showsReset ? "\(usage), resets \(resetText)" : usage
     }
 
     private var resetText: String {

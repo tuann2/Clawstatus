@@ -1,5 +1,7 @@
 # Clawstatus for macOS
 
+<img src="macos/Resources/AppIcon-1024.png" alt="Clawstatus icon" width="128">
+
 Clawstatus is a small native macOS menu-bar monitor for Claude Code usage limits.
 It is built with SwiftUI, uses no third-party dependencies, and does not use a
 browser or webview.
@@ -15,6 +17,10 @@ browser or webview.
   in the menu bar (for example, `76%`).
 - Shows the 5-hour and 7-day usage windows in the floating HUD.
 - Opens a small floating HUD on launch and keeps a menu-bar control for reopening.
+- Offers a 170-point Compact card with bars and percentages only; double-click
+  the card or use its right-click menu to toggle it.
+- Offers 100%, 85%, 70%, and 55% card opacity from the right-click menu.
+- Remembers Compact size and opacity across restarts.
 - Keeps the last successful usage snapshot in
   `~/Library/Application Support/Clawstatus/state.json`.
 - Never reads, saves, logs, or refreshes OAuth tokens; Claude Code handles its
@@ -41,13 +47,24 @@ ad hoc for local use and is not uploaded or distributed by the build script.
 Requirements: Apple Silicon, macOS 13 or newer, and an installed, signed-in
 Claude Code CLI that supports headless `/usage`.
 
-Create the drag-to-Applications installer:
+Recommended Homebrew installation (explicitly bypasses quarantine for this
+ad-hoc-signed build while still verifying the pinned release SHA-256):
+
+```bash
+brew tap tuann2/clawstatus https://github.com/tuann2/Clawstatus
+HOMEBREW_CASK_OPTS=--no-quarantine brew install --cask clawstatus
+```
+
+See [the installation and usage guide](docs/INSTALL.md) for requirements,
+upgrades, controls, uninstalling, and Gatekeeper troubleshooting.
+
+To create the drag-to-Applications installer locally:
 
 ```bash
 ./macos/scripts/package-dmg.sh
 ```
 
-Open `macos/dist/Clawstatus-0.2.0-apple-silicon.dmg`, then drag Clawstatus to
+Open `macos/dist/Clawstatus-0.3.0-apple-silicon.dmg`, then drag Clawstatus to
 Applications. This build is ad-hoc signed rather than Apple-notarized, so on the
 first launch use Control-click → Open and confirm once if Gatekeeper asks.
 
@@ -57,7 +74,5 @@ first launch use Control-click → Open and confirm once if Gatekeeper asks.
 - `macos/Sources/ClawlineCore/` — polling, parsing, and local cache logic
 - `macos/Sources/ClawlineCheck/` — dependency-free executable checks
 - `macos/Resources/Info.plist` — menu-bar application metadata
+- `macos/Resources/AppIcon.icns` — packaged macOS application icon
 - `macos/scripts/build-app.sh` — local `.app` packager
-
-The previous browser prototype remains in the repository for now, but it is not
-used by the macOS application.

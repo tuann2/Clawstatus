@@ -7,6 +7,8 @@ This repository contains a native macOS menu-bar application:
 - `macos/Sources/Clawline/` — SwiftUI and AppKit interface
 - `macos/Sources/ClawlineCore/` — Claude CLI polling, parsing, and cache logic
 - `macos/Sources/ClawlineCheck/` — dependency-free verification executable
+- `Casks/` — Homebrew Cask definitions
+- `docs/` — installation and usage guides
 - `macos/Resources/` — application bundle metadata
 - `macos/scripts/` — build and packaging scripts
 
