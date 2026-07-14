@@ -1,10 +1,10 @@
 cask "clawstatus" do
-  version "0.3.0"
-  sha256 "1178af33c86087a4249208e247175e4924a1847bd97792d7757e9d6f869149a2"
+  version "0.4.0"
+  sha256 "5a9ce5a581bd78d47b7c61bb6a2af75c0a5f6b226d6593f4bb593a0da89d4191"
 
   url "https://github.com/tuann2/Clawstatus/releases/download/v#{version}/Clawstatus-#{version}-apple-silicon.dmg"
   name "Clawstatus"
-  desc "Menu bar monitor for remaining Claude Code usage"
+  desc "Menu bar monitor for remaining Claude Code and Codex usage"
   homepage "https://github.com/tuann2/Clawstatus"
 
   depends_on arch: :arm64
@@ -21,6 +21,7 @@ cask "clawstatus" do
 
       xattr -dr com.apple.quarantine /Applications/Clawstatus.app
 
-    Claude Code must already be installed, updated, and signed in.
+    Install and sign in to Claude Code, Codex CLI, or both. Clawstatus shows
+    whichever providers are available.
   EOS
 end

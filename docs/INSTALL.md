@@ -4,9 +4,9 @@
 
 - Apple Silicon Mac
 - macOS 13 Ventura or newer
-- Homebrew
-- Claude Code installed, updated, and signed in
-- Codex CLI installed, updated, and signed in (optional; Claude remains usable without it)
+- Homebrew (only required for the recommended installation method)
+- At least one installed, updated, and signed-in provider: Claude Code, Codex
+  CLI, or both
 
 Verify both installed CLIs:
 
@@ -16,6 +16,9 @@ claude auth status
 codex --version
 codex login status
 ```
+
+It is fine if only one CLI is installed. Clawstatus hides providers that do not
+have an available usage snapshot.
 
 ## Install with Homebrew
 
@@ -32,6 +35,25 @@ open -a Clawstatus
 ```
 
 Do not use `sudo spctl --master-disable` or disable Gatekeeper system-wide.
+
+## Install from the DMG
+
+Download the DMG and `.sha256` file from the
+[Clawstatus 0.4.0 release](https://github.com/tuann2/Clawstatus/releases/tag/v0.4.0).
+Verify the installer, open it, and drag Clawstatus to Applications:
+
+```bash
+cd ~/Downloads
+shasum -a 256 -c Clawstatus-0.4.0-apple-silicon.dmg.sha256
+open Clawstatus-0.4.0-apple-silicon.dmg
+```
+
+Then remove quarantine from this app only and launch it:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Clawstatus.app
+open -a Clawstatus
+```
 
 ## Upgrade
 

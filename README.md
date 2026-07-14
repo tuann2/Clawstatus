@@ -48,8 +48,9 @@ ad hoc for local use and is not uploaded or distributed by the build script.
 
 ## Install on Apple Silicon
 
-Requirements: Apple Silicon, macOS 13 or newer, and an installed, signed-in
-Claude Code CLI that supports headless `/usage`.
+Requirements: Apple Silicon, macOS 13 or newer, and at least one installed,
+signed-in provider: Claude Code with headless `/usage` support, Codex CLI, or
+both.
 
 Recommended Homebrew installation. Homebrew verifies the pinned release
 SHA-256 first; the second command removes quarantine from Clawstatus only
@@ -65,6 +66,9 @@ open -a Clawstatus
 See [the installation and usage guide](docs/INSTALL.md) for requirements,
 upgrades, controls, uninstalling, and Gatekeeper troubleshooting.
 
+The current installer and checksum are available from the
+[Clawstatus 0.4.0 release](https://github.com/tuann2/Clawstatus/releases/tag/v0.4.0).
+
 To create the drag-to-Applications installer locally:
 
 ```bash
@@ -74,6 +78,9 @@ To create the drag-to-Applications installer locally:
 Open `macos/dist/Clawstatus-0.4.0-apple-silicon.dmg`, then drag Clawstatus to
 Applications. This build is ad-hoc signed rather than Apple-notarized, so on the
 first launch use Control-click → Open and confirm once if Gatekeeper asks.
+
+See [the 0.4.0 release notes](docs/releases/v0.4.0.md) for the Codex integration
+and provider-specific behavior in this version.
 
 ## Project layout
 
