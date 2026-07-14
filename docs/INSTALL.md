@@ -17,26 +17,25 @@ claude auth status
 ## Install with Homebrew
 
 Clawstatus is currently ad-hoc signed rather than Apple-notarized. Homebrew
-normally preserves macOS quarantine, which makes Gatekeeper reject this build.
-The command below explicitly disables quarantine for this cask. Only use it if
-you trust this repository; the cask pins and verifies the release SHA-256.
+downloads the release and verifies the SHA-256 pinned in the cask, but macOS
+will still reject the quarantined app. Install it first, then remove quarantine
+from Clawstatus only. This does not disable Gatekeeper for any other app.
 
 ```bash
 brew tap tuann2/clawstatus https://github.com/tuann2/Clawstatus
-HOMEBREW_CASK_OPTS=--no-quarantine brew install --cask clawstatus
-```
-
-Open it from Applications or run:
-
-```bash
+brew install --cask clawstatus
+xattr -dr com.apple.quarantine /Applications/Clawstatus.app
 open -a Clawstatus
 ```
+
+Do not use `sudo spctl --master-disable` or disable Gatekeeper system-wide.
 
 ## Upgrade
 
 ```bash
 brew update
-HOMEBREW_CASK_OPTS=--no-quarantine brew upgrade --cask clawstatus
+brew upgrade --cask clawstatus
+xattr -dr com.apple.quarantine /Applications/Clawstatus.app
 ```
 
 ## Usage
@@ -68,10 +67,16 @@ defaults delete com.internal.clawstatus
 
 ## Gatekeeper troubleshooting
 
-If Clawstatus was installed manually and macOS shows “Not Opened”, remove the
-manual copy and reinstall it with the Homebrew commands above. Do not disable
-Gatekeeper system-wide.
+If macOS shows “Not Opened”, close the dialog and run:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Clawstatus.app
+open -a Clawstatus
+```
+
+This command targets only Clawstatus. If the app is somewhere else, replace the
+path with its actual location. Do not disable Gatekeeper system-wide.
 
 The permanent distribution fix is signing with an Apple Developer ID and
-notarizing the app. Once notarized builds are available, the
-`HOMEBREW_CASK_OPTS=--no-quarantine` override will no longer be necessary.
+notarizing the app. Once notarized builds are available, the `xattr` step will
+no longer be necessary.

@@ -15,9 +15,11 @@ cask "clawstatus" do
   zap trash: "~/Library/Application Support/Clawstatus"
 
   caveats <<~EOS
-    Clawstatus is ad-hoc signed and not Apple-notarized. Install this cask with
-    HOMEBREW_CASK_OPTS=--no-quarantine only if you trust this repository and
-    have verified that Homebrew accepted the pinned SHA-256 checksum.
+    Clawstatus is ad-hoc signed and not Apple-notarized. Homebrew verifies the
+    pinned SHA-256, but macOS quarantine must be removed from this app once
+    after install or upgrade:
+
+      xattr -dr com.apple.quarantine /Applications/Clawstatus.app
 
     Claude Code must already be installed, updated, and signed in.
   EOS

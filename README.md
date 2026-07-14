@@ -25,8 +25,8 @@ browser or webview.
   `~/Library/Application Support/Clawstatus/state.json`.
 - Never reads, saves, logs, or refreshes OAuth tokens; Claude Code handles its
   own authentication and the only saved data is the last usage snapshot.
-- The **Sign in** action opens the installed Claude Code CLI in Terminal; after
-  authentication, use refresh or wait for the next 60-second poll.
+- The **Sign in** action opens Terminal. Run `claude` there to authenticate,
+  then use refresh or wait for the next 60-second poll.
 
 ## Build
 
@@ -47,12 +47,15 @@ ad hoc for local use and is not uploaded or distributed by the build script.
 Requirements: Apple Silicon, macOS 13 or newer, and an installed, signed-in
 Claude Code CLI that supports headless `/usage`.
 
-Recommended Homebrew installation (explicitly bypasses quarantine for this
-ad-hoc-signed build while still verifying the pinned release SHA-256):
+Recommended Homebrew installation. Homebrew verifies the pinned release
+SHA-256 first; the second command removes quarantine from Clawstatus only
+because this free build is ad-hoc signed rather than Apple-notarized:
 
 ```bash
 brew tap tuann2/clawstatus https://github.com/tuann2/Clawstatus
-HOMEBREW_CASK_OPTS=--no-quarantine brew install --cask clawstatus
+brew install --cask clawstatus
+xattr -dr com.apple.quarantine /Applications/Clawstatus.app
+open -a Clawstatus
 ```
 
 See [the installation and usage guide](docs/INSTALL.md) for requirements,
