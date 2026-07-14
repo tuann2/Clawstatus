@@ -50,7 +50,8 @@ struct ClawstatusApp: App {
         MenuBarExtra {
             HUDView(store: store)
         } label: {
-            Label(store.menuLabel, systemImage: "gauge.with.dots.needle.33percent")
+            Text(store.menuLabel)
+                .monospacedDigit()
         }
         .menuBarExtraStyle(.window)
     }

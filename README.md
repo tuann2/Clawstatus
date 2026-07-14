@@ -9,7 +9,8 @@ browser or webview.
 - Runs the installed Claude Code CLI headlessly with
   `claude -p --no-session-persistence /usage` every 60 seconds and reads its
   plain-text usage report.
-- Shows the remaining percentage of the current 5-hour session in the menu bar.
+- Always shows the remaining percentage of the current 5-hour session directly
+  in the menu bar (for example, `76%`).
 - Shows the 5-hour and 7-day usage windows in the floating HUD.
 - Opens a small floating HUD on launch and keeps a menu-bar control for reopening.
 - Keeps the last successful usage snapshot in
