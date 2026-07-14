@@ -56,12 +56,6 @@ final class UsageStore: ObservableObject {
             connectionState = .authentication("Open Claude Code and sign in")
         } catch UsageError.usageOutputInvalid {
             connectionState = .offline("Claude Code usage format changed")
-        } catch UsageError.credentialsMissing, UsageError.credentialsInvalid, UsageError.unauthorized {
-            connectionState = .authentication("Open Claude Code and sign in")
-        } catch UsageError.keychainAccessDenied {
-            connectionState = .authentication("Allow Keychain access, then retry")
-        } catch UsageError.keychain {
-            connectionState = .authentication("Could not read Claude Code from Keychain")
         } catch {
             connectionState = .offline("Offline — retrying")
         }

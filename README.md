@@ -8,15 +8,13 @@ browser or webview.
 
 - Runs the installed Claude Code CLI headlessly with
   `claude -p --no-session-persistence /usage` every 60 seconds and reads its
-  plain-text usage report. For older Claude Code versions that do not support
-  headless `/usage`, it makes one read-only usage request with the fresh
-  Claude Code credential in Keychain; the token is never saved or logged.
+  plain-text usage report.
 - Shows the 5-hour and 7-day usage windows in the menu bar.
 - Opens a small floating HUD on launch and keeps a menu-bar control for reopening.
 - Keeps the last successful usage snapshot in
   `~/Library/Application Support/Clawline/state.json`.
-- Never saves, logs, or refreshes OAuth tokens; Claude Code handles its own
-  authentication and the only saved data is the last usage snapshot.
+- Never reads, saves, logs, or refreshes OAuth tokens; Claude Code handles its
+  own authentication and the only saved data is the last usage snapshot.
 - The **Sign in** action opens the installed Claude Code CLI in Terminal; after
   authentication, use refresh or wait for the next 60-second poll.
 

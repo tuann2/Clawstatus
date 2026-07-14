@@ -13,9 +13,9 @@ do {
     let report = """
     You are currently using your subscription to power your Claude Code usage
 
-    Current session: 32% used · resets Jul 14, 3:29pm (Asia/Saigon)
-    Current week (all models): 39% used · resets Jul 17, 10am (Asia/Saigon)
-    Current week (Fable): 54% used · resets Jul 17, 10am (Asia/Saigon)
+    Current session: 32% used · resets Jul 14 at 3:29pm (Asia/Saigon)
+    Current week (all models): 39% used · resets Jul 17 at 10am (Asia/Saigon)
+    Current week (Fable): 54% used · resets Jul 17 at 10am (Asia/Saigon)
     """
     let now = Calendar.current.date(from: DateComponents(
         year: 2026, month: 7, day: 14, hour: 12
@@ -26,6 +26,10 @@ do {
     try require(snapshot.fiveHour.resetsAt != nil, "reset timestamp was not decoded")
     try require(snapshot.sevenDay.resetsAt != nil, "minuteless reset timestamp was not decoded")
     try require(UsageWindow(utilization: 120, resetsAt: nil).clampedUtilization == 100, "usage was not clamped")
+
+    let commaReport = report.replacingOccurrences(of: " at ", with: ", ")
+    let commaSnapshot = try ClaudeUsageParser.snapshot(from: commaReport, now: now)
+    try require(commaSnapshot.fiveHour.resetsAt != nil, "comma reset timestamp was not decoded")
 
     do {
         _ = try ClaudeUsageParser.snapshot(from: "Usage: unknown", now: now)

@@ -30,13 +30,6 @@ public enum UsageError: LocalizedError, Equatable {
     case claudeNotInstalled
     case claudeCommandFailed(String)
     case usageOutputInvalid
-    case credentialsMissing
-    case credentialsInvalid
-    case keychainAccessDenied
-    case keychain(OSStatus)
-    case unauthorized
-    case server(Int)
-    case invalidResponse
 
     public var errorDescription: String? {
         switch self {
@@ -46,20 +39,6 @@ public enum UsageError: LocalizedError, Equatable {
             "Claude Code could not retrieve usage"
         case .usageOutputInvalid:
             "Claude Code returned an unsupported usage report"
-        case .credentialsMissing:
-            "Claude Code is not signed in"
-        case .credentialsInvalid:
-            "Claude Code credentials are invalid"
-        case .keychainAccessDenied:
-            "Keychain access was not allowed"
-        case .keychain(let status):
-            "Keychain returned status \(status)"
-        case .unauthorized:
-            "Claude Code sign-in expired"
-        case .server(let status):
-            "Usage service returned HTTP \(status)"
-        case .invalidResponse:
-            "Usage service returned an unexpected response"
         }
     }
 }
