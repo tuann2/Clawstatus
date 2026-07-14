@@ -44,10 +44,19 @@ private final class CodexProcessState: @unchecked Sendable {
         continuation.resume(with: result)
     }
 
-    func send(_ request: [String: Any]) throws {
+    private func sendUnlocked(_ request: [String: Any]) throws {
         let data = try JSONSerialization.data(withJSONObject: request)
         input.fileHandleForWriting.write(data)
         input.fileHandleForWriting.write(Data("\n".utf8))
+    }
+
+    private func sendIfActive(_ requests: [[String: Any]]) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !completed else { throw CancellationError() }
+        for request in requests {
+            try sendUnlocked(request)
+        }
     }
 
     func start(executable: String, appVersion: String) throws {
@@ -60,7 +69,7 @@ private final class CodexProcessState: @unchecked Sendable {
         process.standardOutput = output
         process.standardError = error
         try process.run()
-        try send([
+        try sendUnlocked([
             "id": 1,
             "method": "initialize",
             "params": [
@@ -86,8 +95,10 @@ private final class CodexProcessState: @unchecked Sendable {
             }
             if id == 1, object["result"] != nil {
                 do {
-                    try send(["method": "initialized"])
-                    try send(["id": 2, "method": "account/rateLimits/read", "params": NSNull()])
+                    try sendIfActive([
+                        ["method": "initialized"],
+                        ["id": 2, "method": "account/rateLimits/read", "params": NSNull()],
+                    ])
                 } catch { finish(.failure(UsageError.codexCommandFailed(error.localizedDescription))) }
             } else if id == 2 {
                 guard object["result"] != nil,
