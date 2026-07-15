@@ -113,6 +113,11 @@ struct HUDView: View {
         switch store.connectionState {
         case .loading:
             ProgressView().controlSize(.small)
+        case .cached:
+            Label("Cached", systemImage: "circle.fill")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.secondary)
+                .labelStyle(CompactStatusLabelStyle())
         case .live:
             Label("Live", systemImage: "circle.fill")
                 .font(.system(size: 10, weight: .medium))
@@ -219,11 +224,13 @@ struct HUDView: View {
             return "Loading usage…"
         case .authentication(let message), .offline(let message):
             return message
+        case .cached:
+            guard let capturedAt = store.newestCapturedAt else { return "Cached" }
+            return UsageTimestampFormatter.updatedText(capturedAt: capturedAt, now: now)
         case .live:
             if let unavailable = store.availabilityMessage { return unavailable }
             guard let capturedAt = store.newestCapturedAt else { return "Live" }
-            let seconds = max(0, Int(now.timeIntervalSince(capturedAt)))
-            return seconds < 2 ? "Updated now" : "Updated \(seconds)s ago"
+            return UsageTimestampFormatter.updatedText(capturedAt: capturedAt, now: now)
         }
     }
 

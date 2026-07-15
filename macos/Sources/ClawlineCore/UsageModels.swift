@@ -66,6 +66,16 @@ public struct CodexUsageSnapshot: Codable, Equatable, Sendable {
     }
 }
 
+public enum UsageTimestampFormatter {
+    public static func updatedText(capturedAt: Date, now: Date = Date()) -> String {
+        let seconds = max(0, Int(now.timeIntervalSince(capturedAt)))
+        if seconds < 2 { return "Updated now" }
+        if seconds < 60 { return "Updated \(seconds)s ago" }
+        if seconds < 60 * 60 { return "Updated \(seconds / 60)m ago" }
+        return "Updated \(seconds / (60 * 60))h ago"
+    }
+}
+
 public enum UsageError: LocalizedError, Equatable, Sendable {
     case claudeNotInstalled
     case claudeCommandFailed(String)

@@ -33,6 +33,42 @@ do {
     let commaSnapshot = try ClaudeUsageParser.snapshot(from: commaReport, now: now)
     try require(commaSnapshot.fiveHour.resetsAt != nil, "comma reset timestamp was not decoded")
 
+    let timezoneNow = ISO8601DateFormatter().date(from: "2026-07-14T00:00:00Z")!
+    let timezoneReport = """
+    Current session: 1% used · resets Jul 14 at 3:29pm (Pacific/Honolulu)
+    Current week (all models): 2% used · resets Jul 17 at 10am (Pacific/Honolulu)
+    """
+    let timezoneSnapshot = try ClaudeUsageParser.snapshot(from: timezoneReport, now: timezoneNow)
+    let expectedHonoluluReset = ISO8601DateFormatter().date(from: "2026-07-15T01:29:00Z")!
+    try require(
+        timezoneSnapshot.fiveHour.resetsAt == expectedHonoluluReset,
+        "reset timestamp ignored the report timezone"
+    )
+
+    let recencyNow = Date(timeIntervalSince1970: 10_000)
+    try require(
+        UsageTimestampFormatter.updatedText(capturedAt: recencyNow, now: recencyNow) == "Updated now",
+        "current timestamp was not formatted as now"
+    )
+    try require(
+        UsageTimestampFormatter.updatedText(
+            capturedAt: recencyNow.addingTimeInterval(-59), now: recencyNow
+        ) == "Updated 59s ago",
+        "seconds timestamp was not formatted correctly"
+    )
+    try require(
+        UsageTimestampFormatter.updatedText(
+            capturedAt: recencyNow.addingTimeInterval(-60), now: recencyNow
+        ) == "Updated 1m ago",
+        "minutes timestamp was not formatted correctly"
+    )
+    try require(
+        UsageTimestampFormatter.updatedText(
+            capturedAt: recencyNow.addingTimeInterval(-7_200), now: recencyNow
+        ) == "Updated 2h ago",
+        "hours timestamp was not formatted correctly"
+    )
+
     do {
         _ = try ClaudeUsageParser.snapshot(from: "Usage: unknown", now: now)
         throw CheckFailure.unexpected("invalid usage report was accepted")

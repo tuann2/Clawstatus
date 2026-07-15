@@ -12,7 +12,7 @@ public struct UsageClient: Sendable {
 public struct CodexUsageClient: Sendable {
     public init() {}
 
-    public func fetch(appVersion: String = "0.4.0") async throws -> CodexUsageSnapshot {
+    public func fetch(appVersion: String = "unknown") async throws -> CodexUsageSnapshot {
         let response = try await CodexUsageCommand.run(appVersion: appVersion)
         return try CodexUsageParser.snapshot(from: response)
     }
@@ -27,6 +27,7 @@ private final class CodexProcessState: @unchecked Sendable {
     private let lock = NSLock()
     private var completed = false
     private var buffer = Data()
+    private var timeoutWorkItem: DispatchWorkItem?
 
     init(_ continuation: CheckedContinuation<String, Error>) {
         self.continuation = continuation
@@ -36,7 +37,10 @@ private final class CodexProcessState: @unchecked Sendable {
         lock.lock()
         guard !completed else { lock.unlock(); return }
         completed = true
+        let timeoutWorkItem = timeoutWorkItem
+        self.timeoutWorkItem = nil
         lock.unlock()
+        timeoutWorkItem?.cancel()
         output.fileHandleForReading.readabilityHandler = nil
         error.fileHandleForReading.readabilityHandler = nil
         input.fileHandleForWriting.closeFile()
@@ -68,6 +72,11 @@ private final class CodexProcessState: @unchecked Sendable {
         process.standardInput = input
         process.standardOutput = output
         process.standardError = error
+        process.terminationHandler = { [weak self] process in
+            self?.finish(.failure(UsageError.codexCommandFailed(
+                "Codex exited (status \(process.terminationStatus))"
+            )))
+        }
         try process.run()
         try sendUnlocked([
             "id": 1,
@@ -77,6 +86,17 @@ private final class CodexProcessState: @unchecked Sendable {
                 "capabilities": ["experimentalApi": true],
             ],
         ])
+    }
+
+    func scheduleTimeout(after seconds: TimeInterval) {
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.finish(.failure(UsageError.codexCommandFailed("Timed out waiting for Codex CLI")))
+        }
+        lock.lock()
+        guard !completed else { lock.unlock(); return }
+        timeoutWorkItem = workItem
+        lock.unlock()
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + seconds, execute: workItem)
     }
 
     func handleOutput(_ data: Data) {
@@ -160,9 +180,7 @@ enum CodexUsageCommand {
 
                     do {
                         try state.start(executable: executable, appVersion: appVersion)
-                        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 12) {
-                            state.finish(.failure(UsageError.codexCommandFailed("Timed out waiting for Codex CLI")))
-                        }
+                        state.scheduleTimeout(after: 12)
                     } catch {
                         state.finish(.failure(UsageError.codexCommandFailed(error.localizedDescription)))
                     }
@@ -194,6 +212,142 @@ public enum CodexUsageParser {
     }
 }
 
+private final class ClaudeProcessState: @unchecked Sendable {
+    let process = Process()
+    let output = Pipe()
+    let error = Pipe()
+    let continuation: CheckedContinuation<String, Error>
+    private let lock = NSLock()
+    private var completed = false
+    private var outputBuffer = Data()
+    private var outputReachedEOF = false
+    private var errorReachedEOF = false
+    private var terminationStatus: Int32?
+    private var timeoutWorkItem: DispatchWorkItem?
+
+    init(_ continuation: CheckedContinuation<String, Error>) {
+        self.continuation = continuation
+    }
+
+    func finish(_ result: Result<String, Error>) {
+        lock.lock()
+        guard !completed else { lock.unlock(); return }
+        completed = true
+        let timeoutWorkItem = timeoutWorkItem
+        self.timeoutWorkItem = nil
+        lock.unlock()
+
+        timeoutWorkItem?.cancel()
+        output.fileHandleForReading.readabilityHandler = nil
+        error.fileHandleForReading.readabilityHandler = nil
+        if process.isRunning { process.terminate() }
+        continuation.resume(with: result)
+    }
+
+    func start(executable: String, currentDirectoryURL: URL) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !completed else { throw CancellationError() }
+
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = [
+            "-p",
+            "--no-session-persistence",
+            "--tools", "",
+            "--strict-mcp-config",
+            "--mcp-config", #"{"mcpServers":{}}"#,
+            "--setting-sources", "",
+            "/usage",
+        ]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = output
+        process.standardError = error
+        process.currentDirectoryURL = currentDirectoryURL
+        process.terminationHandler = { [weak self] process in
+            self?.handleTermination(status: process.terminationStatus)
+        }
+        try process.run()
+    }
+
+    func scheduleTimeout(after seconds: TimeInterval) {
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.finish(.failure(UsageError.claudeCommandFailed("Timed out")))
+        }
+        lock.lock()
+        guard !completed else { lock.unlock(); return }
+        timeoutWorkItem = workItem
+        lock.unlock()
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + seconds, execute: workItem)
+    }
+
+    func handleOutput(_ data: Data) {
+        lock.lock()
+        guard !completed else { lock.unlock(); return }
+        if data.isEmpty {
+            outputReachedEOF = true
+        } else {
+            outputBuffer.append(data)
+        }
+        let result = completionResultIfReady()
+        lock.unlock()
+        if data.isEmpty { output.fileHandleForReading.readabilityHandler = nil }
+        if let result { finish(result) }
+    }
+
+    func handleError(_ data: Data) {
+        lock.lock()
+        guard !completed else { lock.unlock(); return }
+        // Deliberately discard stderr: it can contain account or report details.
+        if data.isEmpty { errorReachedEOF = true }
+        let result = completionResultIfReady()
+        lock.unlock()
+        if data.isEmpty { error.fileHandleForReading.readabilityHandler = nil }
+        if let result { finish(result) }
+    }
+
+    private func handleTermination(status: Int32) {
+        lock.lock()
+        guard !completed else { lock.unlock(); return }
+        terminationStatus = status
+        let result = completionResultIfReady()
+        lock.unlock()
+        if let result { finish(result) }
+    }
+
+    private func completionResultIfReady() -> Result<String, Error>? {
+        guard let terminationStatus, outputReachedEOF, errorReachedEOF else { return nil }
+        if terminationStatus == 0 {
+            return .success(String(decoding: outputBuffer, as: UTF8.self))
+        }
+        return .failure(UsageError.claudeCommandFailed(
+            "Claude exited (status \(terminationStatus))"
+        ))
+    }
+}
+
+private final class ClaudeProcessBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var state: ClaudeProcessState?
+    private var cancelled = false
+
+    func install(_ state: ClaudeProcessState) -> Bool {
+        lock.lock()
+        self.state = state
+        let shouldCancel = cancelled
+        lock.unlock()
+        if shouldCancel { state.finish(.failure(CancellationError())) }
+        return !shouldCancel
+    }
+
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        let state = state
+        lock.unlock()
+        state?.finish(.failure(CancellationError()))
+    }
+}
+
 enum ClaudeUsageCommand {
     private static let candidates = [
         "/opt/homebrew/bin/claude",
@@ -209,53 +363,39 @@ enum ClaudeUsageCommand {
             throw UsageError.claudeNotInstalled
         }
 
-        return try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .utility).async {
-                let process = Process()
-                let output = Pipe()
-                let error = Pipe()
-                process.executableURL = URL(fileURLWithPath: executable)
-                process.arguments = [
-                    "-p",
-                    "--no-session-persistence",
-                    "--tools", "",
-                    "--strict-mcp-config",
-                    "--mcp-config", #"{"mcpServers":{}}"#,
-                    "--setting-sources", "",
-                    "/usage",
-                ]
-                process.standardInput = FileHandle.nullDevice
-                process.standardOutput = output
-                process.standardError = error
-
-                do {
-                    let runtimeDirectory = FileManager.default.urls(
-                        for: .applicationSupportDirectory,
-                        in: .userDomainMask
-                    )[0]
-                        .appendingPathComponent("Clawstatus", isDirectory: true)
-                        .appendingPathComponent("Runtime", isDirectory: true)
-                    try FileManager.default.createDirectory(
-                        at: runtimeDirectory,
-                        withIntermediateDirectories: true
-                    )
-                    process.currentDirectoryURL = runtimeDirectory
-                    try process.run()
-                    process.waitUntilExit()
-                    let stdout = output.fileHandleForReading.readDataToEndOfFile()
-                    let stderr = error.fileHandleForReading.readDataToEndOfFile()
-
-                    guard process.terminationStatus == 0 else {
-                        let message = String(decoding: stderr, as: UTF8.self)
-                        continuation.resume(throwing: UsageError.claudeCommandFailed(message))
-                        return
+        let box = ClaudeProcessBox()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: .utility).async {
+                    let state = ClaudeProcessState(continuation)
+                    guard box.install(state) else { return }
+                    state.output.fileHandleForReading.readabilityHandler = {
+                        state.handleOutput($0.availableData)
+                    }
+                    state.error.fileHandleForReading.readabilityHandler = {
+                        state.handleError($0.availableData)
                     }
 
-                    continuation.resume(returning: String(decoding: stdout, as: UTF8.self))
-                } catch {
-                    continuation.resume(throwing: UsageError.claudeCommandFailed(error.localizedDescription))
+                    do {
+                        let runtimeDirectory = FileManager.default.urls(
+                            for: .applicationSupportDirectory,
+                            in: .userDomainMask
+                        )[0]
+                            .appendingPathComponent("Clawstatus", isDirectory: true)
+                            .appendingPathComponent("Runtime", isDirectory: true)
+                        try FileManager.default.createDirectory(
+                            at: runtimeDirectory,
+                            withIntermediateDirectories: true
+                        )
+                        try state.start(executable: executable, currentDirectoryURL: runtimeDirectory)
+                        state.scheduleTimeout(after: 30)
+                    } catch {
+                        state.finish(.failure(UsageError.claudeCommandFailed(error.localizedDescription)))
+                    }
                 }
             }
+        } onCancel: {
+            box.cancel()
         }
     }
 }
@@ -291,18 +431,25 @@ public enum ClaudeUsageParser {
     private static func resetDate(in line: String, now: Date) -> Date? {
         guard let resetRange = line.range(of: "resets ") else { return nil }
         let afterReset = line[resetRange.upperBound...]
-        let rawValue = afterReset.split(separator: "(", maxSplits: 1).first?
+        let pieces = afterReset.split(separator: "(", maxSplits: 1, omittingEmptySubsequences: false)
+        let rawValue = pieces.first?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let timeZone = pieces.count > 1
+            ? TimeZone(identifier: String(pieces[1].prefix(while: { $0 != ")" }))) ?? .current
+            : .current
         let value = rawValue.replacingOccurrences(of: " at ", with: ", ")
 
         let formats = ["MMM d, h:mma", "MMM d, ha"]
-        let year = Calendar.current.component(.year, from: now)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let year = calendar.component(.year, from: now)
 
         for candidateYear in [year, year + 1] {
             for format in formats {
                 let formatter = DateFormatter()
                 formatter.locale = Locale(identifier: "en_US_POSIX")
-                formatter.timeZone = .current
+                formatter.calendar = calendar
+                formatter.timeZone = timeZone
                 formatter.dateFormat = "yyyy " + format
                 guard let date = formatter.date(from: "\(candidateYear) \(value)") else { continue }
                 if date >= now.addingTimeInterval(-24 * 60 * 60) {
