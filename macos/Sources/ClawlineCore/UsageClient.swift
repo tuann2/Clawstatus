@@ -18,142 +18,6 @@ public struct CodexUsageClient: Sendable {
     }
 }
 
-private final class CodexProcessState: @unchecked Sendable {
-    let process = Process()
-    let input = Pipe()
-    let output = Pipe()
-    let error = Pipe()
-    let continuation: CheckedContinuation<String, Error>
-    private let lock = NSLock()
-    private var completed = false
-    private var buffer = Data()
-    private var timeoutWorkItem: DispatchWorkItem?
-
-    init(_ continuation: CheckedContinuation<String, Error>) {
-        self.continuation = continuation
-    }
-
-    func finish(_ result: Result<String, Error>) {
-        lock.lock()
-        guard !completed else { lock.unlock(); return }
-        completed = true
-        let timeoutWorkItem = timeoutWorkItem
-        self.timeoutWorkItem = nil
-        lock.unlock()
-        timeoutWorkItem?.cancel()
-        output.fileHandleForReading.readabilityHandler = nil
-        error.fileHandleForReading.readabilityHandler = nil
-        input.fileHandleForWriting.closeFile()
-        if process.isRunning { process.terminate() }
-        continuation.resume(with: result)
-    }
-
-    private func sendUnlocked(_ request: [String: Any]) throws {
-        let data = try JSONSerialization.data(withJSONObject: request)
-        input.fileHandleForWriting.write(data)
-        input.fileHandleForWriting.write(Data("\n".utf8))
-    }
-
-    private func sendIfActive(_ requests: [[String: Any]]) throws {
-        lock.lock()
-        defer { lock.unlock() }
-        guard !completed else { throw CancellationError() }
-        for request in requests {
-            try sendUnlocked(request)
-        }
-    }
-
-    func start(executable: String, appVersion: String) throws {
-        lock.lock()
-        defer { lock.unlock() }
-        guard !completed else { throw CancellationError() }
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = ["app-server", "--stdio"]
-        process.standardInput = input
-        process.standardOutput = output
-        process.standardError = error
-        process.terminationHandler = { [weak self] process in
-            self?.finish(.failure(UsageError.codexCommandFailed(
-                "Codex exited (status \(process.terminationStatus))"
-            )))
-        }
-        try process.run()
-        try sendUnlocked([
-            "id": 1,
-            "method": "initialize",
-            "params": [
-                "clientInfo": ["name": "clawstatus", "version": appVersion],
-                "capabilities": ["experimentalApi": true],
-            ],
-        ])
-    }
-
-    func scheduleTimeout(after seconds: TimeInterval) {
-        let workItem = DispatchWorkItem { [weak self] in
-            self?.finish(.failure(UsageError.codexCommandFailed("Timed out waiting for Codex CLI")))
-        }
-        lock.lock()
-        guard !completed else { lock.unlock(); return }
-        timeoutWorkItem = workItem
-        lock.unlock()
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + seconds, execute: workItem)
-    }
-
-    func handleOutput(_ data: Data) {
-        guard !data.isEmpty else { return }
-        lock.lock()
-        buffer.append(data)
-        var lines = buffer.split(separator: 10, omittingEmptySubsequences: true)
-        buffer = buffer.last == 10 ? Data() : Data(lines.popLast().map(Array.init) ?? [])
-        lock.unlock()
-        for line in lines {
-            guard let object = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
-                  let id = object["id"] as? Int else { continue }
-            if object["error"] != nil {
-                finish(.failure(UsageError.codexCommandFailed("Codex app-server returned an error")))
-                return
-            }
-            if id == 1, object["result"] != nil {
-                do {
-                    try sendIfActive([
-                        ["method": "initialized"],
-                        ["id": 2, "method": "account/rateLimits/read", "params": NSNull()],
-                    ])
-                } catch { finish(.failure(UsageError.codexCommandFailed(error.localizedDescription))) }
-            } else if id == 2 {
-                guard object["result"] != nil,
-                      let text = String(data: Data(line), encoding: .utf8) else {
-                    finish(.failure(UsageError.codexOutputInvalid)); return
-                }
-                finish(.success(text))
-            }
-        }
-    }
-}
-
-private final class CodexProcessBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var state: CodexProcessState?
-    private var cancelled = false
-
-    func install(_ state: CodexProcessState) -> Bool {
-        lock.lock()
-        self.state = state
-        let shouldCancel = cancelled
-        lock.unlock()
-        if shouldCancel { state.finish(.failure(CancellationError())) }
-        return !shouldCancel
-    }
-
-    func cancel() {
-        lock.lock()
-        cancelled = true
-        let state = state
-        lock.unlock()
-        state?.finish(.failure(CancellationError()))
-    }
-}
-
 enum CodexUsageCommand {
     private static let candidates = [
         "/opt/homebrew/bin/codex",
@@ -162,32 +26,89 @@ enum CodexUsageCommand {
     ]
 
     static func run(appVersion: String) async throws -> String {
-        guard let executable = candidates.first(where: FileManager.default.isExecutableFile) else {
+        guard let executable = CLIProcessRunner.firstExecutable(in: candidates) else {
             throw UsageError.codexNotInstalled
         }
-
-        let box = CodexProcessBox()
-        return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                DispatchQueue.global(qos: .utility).async {
-                    let state = CodexProcessState(continuation)
-                    guard box.install(state) else { return }
-                    state.output.fileHandleForReading.readabilityHandler = { state.handleOutput($0.availableData) }
-                    // Consume stderr as the server runs; leaving this pipe unread can deadlock a child process.
-                    state.error.fileHandleForReading.readabilityHandler = { handle in
-                        _ = handle.availableData
-                    }
-
-                    do {
-                        try state.start(executable: executable, appVersion: appVersion)
-                        state.scheduleTimeout(after: 12)
-                    } catch {
-                        state.finish(.failure(UsageError.codexCommandFailed(error.localizedDescription)))
-                    }
-                }
+        let initialize = try requestData([
+            "id": 1,
+            "method": "initialize",
+            "params": [
+                "clientInfo": ["name": "clawstatus", "version": appVersion],
+                "capabilities": ["experimentalApi": true],
+            ],
+        ])
+        let decoder = CodexStreamDecoder()
+        do {
+            let result = try await CLIProcessRunner.runStreaming(.init(
+                executable: executable,
+                arguments: ["app-server", "--stdio"],
+                standardInput: initialize,
+                timeout: 12
+            )) { data, session in
+                decoder.handle(data, session: session)
             }
-        } onCancel: {
-            box.cancel()
+            return String(decoding: result.stdout, as: UTF8.self)
+        } catch CLIProcessRunner.RunnerError.timedOut {
+            throw UsageError.codexCommandFailed("Timed out waiting for Codex CLI")
+        } catch CLIProcessRunner.RunnerError.exited(let status) {
+            throw UsageError.codexCommandFailed("Codex exited (status \(status))")
+        } catch let error as UsageError {
+            throw error
+        } catch {
+            throw UsageError.codexCommandFailed(error.localizedDescription)
+        }
+    }
+
+    fileprivate static func requestData(_ request: [String: Any]) throws -> Data {
+        var data = try JSONSerialization.data(withJSONObject: request)
+        data.append(10)
+        return data
+    }
+}
+
+private final class CodexStreamDecoder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var buffer = Data()
+    private var initialized = false
+
+    func handle(_ data: Data, session: CLIProcessRunner.Session) {
+        lock.lock()
+        buffer.append(data)
+        var lines = buffer.split(separator: 10, omittingEmptySubsequences: true)
+        buffer = buffer.last == 10 ? Data() : Data(lines.popLast().map(Array.init) ?? [])
+        lock.unlock()
+
+        for line in lines {
+            guard let object = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
+                  let id = object["id"] as? Int else { continue }
+            if object["error"] != nil {
+                session.fail(with: UsageError.codexCommandFailed("Codex app-server returned an error"))
+                return
+            }
+            if id == 1, object["result"] != nil {
+                lock.lock()
+                let shouldSend = !initialized
+                initialized = true
+                lock.unlock()
+                guard shouldSend else { continue }
+                do {
+                    let initialized = try CodexUsageCommand.requestData(["method": "initialized"])
+                    let request = try CodexUsageCommand.requestData([
+                        "id": 2,
+                        "method": "account/rateLimits/read",
+                        "params": NSNull(),
+                    ])
+                    session.send(initialized + request)
+                } catch {
+                    session.fail(with: UsageError.codexCommandFailed(error.localizedDescription))
+                }
+            } else if id == 2 {
+                guard object["result"] != nil else {
+                    session.fail(with: UsageError.codexOutputInvalid)
+                    return
+                }
+                session.succeed(with: Data(line))
+            }
         }
     }
 }
@@ -212,142 +133,6 @@ public enum CodexUsageParser {
     }
 }
 
-private final class ClaudeProcessState: @unchecked Sendable {
-    let process = Process()
-    let output = Pipe()
-    let error = Pipe()
-    let continuation: CheckedContinuation<String, Error>
-    private let lock = NSLock()
-    private var completed = false
-    private var outputBuffer = Data()
-    private var outputReachedEOF = false
-    private var errorReachedEOF = false
-    private var terminationStatus: Int32?
-    private var timeoutWorkItem: DispatchWorkItem?
-
-    init(_ continuation: CheckedContinuation<String, Error>) {
-        self.continuation = continuation
-    }
-
-    func finish(_ result: Result<String, Error>) {
-        lock.lock()
-        guard !completed else { lock.unlock(); return }
-        completed = true
-        let timeoutWorkItem = timeoutWorkItem
-        self.timeoutWorkItem = nil
-        lock.unlock()
-
-        timeoutWorkItem?.cancel()
-        output.fileHandleForReading.readabilityHandler = nil
-        error.fileHandleForReading.readabilityHandler = nil
-        if process.isRunning { process.terminate() }
-        continuation.resume(with: result)
-    }
-
-    func start(executable: String, currentDirectoryURL: URL) throws {
-        lock.lock()
-        defer { lock.unlock() }
-        guard !completed else { throw CancellationError() }
-
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = [
-            "-p",
-            "--no-session-persistence",
-            "--tools", "",
-            "--strict-mcp-config",
-            "--mcp-config", #"{"mcpServers":{}}"#,
-            "--setting-sources", "",
-            "/usage",
-        ]
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = output
-        process.standardError = error
-        process.currentDirectoryURL = currentDirectoryURL
-        process.terminationHandler = { [weak self] process in
-            self?.handleTermination(status: process.terminationStatus)
-        }
-        try process.run()
-    }
-
-    func scheduleTimeout(after seconds: TimeInterval) {
-        let workItem = DispatchWorkItem { [weak self] in
-            self?.finish(.failure(UsageError.claudeCommandFailed("Timed out")))
-        }
-        lock.lock()
-        guard !completed else { lock.unlock(); return }
-        timeoutWorkItem = workItem
-        lock.unlock()
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + seconds, execute: workItem)
-    }
-
-    func handleOutput(_ data: Data) {
-        lock.lock()
-        guard !completed else { lock.unlock(); return }
-        if data.isEmpty {
-            outputReachedEOF = true
-        } else {
-            outputBuffer.append(data)
-        }
-        let result = completionResultIfReady()
-        lock.unlock()
-        if data.isEmpty { output.fileHandleForReading.readabilityHandler = nil }
-        if let result { finish(result) }
-    }
-
-    func handleError(_ data: Data) {
-        lock.lock()
-        guard !completed else { lock.unlock(); return }
-        // Deliberately discard stderr: it can contain account or report details.
-        if data.isEmpty { errorReachedEOF = true }
-        let result = completionResultIfReady()
-        lock.unlock()
-        if data.isEmpty { error.fileHandleForReading.readabilityHandler = nil }
-        if let result { finish(result) }
-    }
-
-    private func handleTermination(status: Int32) {
-        lock.lock()
-        guard !completed else { lock.unlock(); return }
-        terminationStatus = status
-        let result = completionResultIfReady()
-        lock.unlock()
-        if let result { finish(result) }
-    }
-
-    private func completionResultIfReady() -> Result<String, Error>? {
-        guard let terminationStatus, outputReachedEOF, errorReachedEOF else { return nil }
-        if terminationStatus == 0 {
-            return .success(String(decoding: outputBuffer, as: UTF8.self))
-        }
-        return .failure(UsageError.claudeCommandFailed(
-            "Claude exited (status \(terminationStatus))"
-        ))
-    }
-}
-
-private final class ClaudeProcessBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var state: ClaudeProcessState?
-    private var cancelled = false
-
-    func install(_ state: ClaudeProcessState) -> Bool {
-        lock.lock()
-        self.state = state
-        let shouldCancel = cancelled
-        lock.unlock()
-        if shouldCancel { state.finish(.failure(CancellationError())) }
-        return !shouldCancel
-    }
-
-    func cancel() {
-        lock.lock()
-        cancelled = true
-        let state = state
-        lock.unlock()
-        state?.finish(.failure(CancellationError()))
-    }
-}
-
 enum ClaudeUsageCommand {
     private static let candidates = [
         "/opt/homebrew/bin/claude",
@@ -357,45 +142,59 @@ enum ClaudeUsageCommand {
     ]
 
     static func run() async throws -> String {
-        guard let executable = candidates.first(where: {
-            FileManager.default.isExecutableFile(atPath: $0)
-        }) else {
+        guard let executable = CLIProcessRunner.firstExecutable(in: candidates) else {
             throw UsageError.claudeNotInstalled
         }
-
-        let box = ClaudeProcessBox()
-        return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                DispatchQueue.global(qos: .utility).async {
-                    let state = ClaudeProcessState(continuation)
-                    guard box.install(state) else { return }
-                    state.output.fileHandleForReading.readabilityHandler = {
-                        state.handleOutput($0.availableData)
-                    }
-                    state.error.fileHandleForReading.readabilityHandler = {
-                        state.handleError($0.availableData)
-                    }
-
-                    do {
-                        let runtimeDirectory = FileManager.default.urls(
-                            for: .applicationSupportDirectory,
-                            in: .userDomainMask
-                        )[0]
-                            .appendingPathComponent("Clawstatus", isDirectory: true)
-                            .appendingPathComponent("Runtime", isDirectory: true)
-                        try FileManager.default.createDirectory(
-                            at: runtimeDirectory,
-                            withIntermediateDirectories: true
-                        )
-                        try state.start(executable: executable, currentDirectoryURL: runtimeDirectory)
-                        state.scheduleTimeout(after: 30)
-                    } catch {
-                        state.finish(.failure(UsageError.claudeCommandFailed(error.localizedDescription)))
-                    }
-                }
+        let runtimeDirectory = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        )[0]
+            .appendingPathComponent("Clawstatus", isDirectory: true)
+            .appendingPathComponent("Runtime", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: runtimeDirectory, withIntermediateDirectories: true)
+            let inputTrigger = ClaudeInputTrigger()
+            let result = try await CLIProcessRunner.runStreaming(.init(
+                executable: executable,
+                arguments: [
+                    "-p",
+                    "--safe-mode",
+                    "/usage",
+                ],
+                currentDirectoryURL: runtimeDirectory,
+                environmentOverrides: [
+                    "CLAUDE_CODE_SKIP_PROMPT_HISTORY": "1",
+                    "NO_COLOR": "1",
+                ],
+                timeout: 30
+            )) { _, session in
+                inputTrigger.respondIfNeeded(session: session)
             }
-        } onCancel: {
-            box.cancel()
+            return String(decoding: result.stdout, as: UTF8.self)
+        } catch CLIProcessRunner.RunnerError.timedOut {
+            throw UsageError.claudeCommandFailed("Timed out")
+        } catch CLIProcessRunner.RunnerError.exited(let status) {
+            throw UsageError.claudeCommandFailed("Claude exited (status \(status))")
+        } catch let error as UsageError {
+            throw error
+        } catch {
+            throw UsageError.claudeCommandFailed(error.localizedDescription)
+        }
+    }
+}
+
+private final class ClaudeInputTrigger: @unchecked Sendable {
+    private let lock = NSLock()
+    private var hasResponded = false
+
+    func respondIfNeeded(session: CLIProcessRunner.Session) {
+        lock.lock()
+        guard !hasResponded else { lock.unlock(); return }
+        hasResponded = true
+        lock.unlock()
+        session.send(Data([10]))
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 1) {
+            session.closeStandardInput()
         }
     }
 }
@@ -413,12 +212,14 @@ public enum ClaudeUsageParser {
     private static func window(prefix: String, in report: String, now: Date) -> UsageWindow? {
         guard let line = report.split(whereSeparator: \.isNewline).first(where: {
             $0.trimmingCharacters(in: .whitespaces).hasPrefix(prefix)
-        }), let percentage = percentage(in: String(line)),
-              let reset = resetDate(in: String(line), now: now) else {
+        }), let percentage = percentage(in: String(line)) else {
             return nil
         }
 
-        return UsageWindow(utilization: percentage, resetsAt: reset)
+        return UsageWindow(
+            utilization: percentage,
+            resetsAt: resetDate(in: String(line), now: now)
+        )
     }
 
     private static func percentage(in line: String) -> Double? {

@@ -1,4 +1,5 @@
 import AppKit
+import ClawlineCore
 import Combine
 import SwiftUI
 
@@ -53,9 +54,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.resizeHUD()
                 }
             }
-        contentObserver = Publishers.CombineLatest(UsageStore.shared.$snapshot, UsageStore.shared.$codexSnapshot)
-            .map { claude, codex in
-                HUDContentShape(claudeWindows: claude == nil ? 1 : 2, codexWindows: codex?.windows.count ?? 0)
+        contentObserver = Publishers.CombineLatest(UsageStore.shared.$providers, preferences.$enabledProviders)
+            .map { records, enabled in
+                HUDContentShape(entries: UsageProvider.supported.map { provider in
+                    let record = records[provider]
+                    return HUDContentShape.Entry(
+                        provider: provider,
+                        enabled: enabled.contains(provider),
+                        metricCount: record?.snapshot?.metrics.count ?? 0,
+                        state: record?.state ?? .disabled
+                    )
+                })
             }
             .removeDuplicates()
             .dropFirst()
@@ -70,7 +79,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hostingView.invalidateIntrinsicContentSize()
         hostingView.layoutSubtreeIfNeeded()
 
-        let size = hostingView.fittingSize
+        var size = hostingView.fittingSize
+        if let visibleHeight = panel.screen?.visibleFrame.height {
+            size.height = min(size.height, max(220, visibleHeight - 40))
+        }
         let center = NSPoint(x: panel.frame.midX, y: panel.frame.midY)
         hostingView.frame = NSRect(origin: .zero, size: size)
         panel.setFrame(
@@ -87,8 +99,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 private struct HUDContentShape: Equatable {
-    let claudeWindows: Int
-    let codexWindows: Int
+    struct Entry: Equatable {
+        let provider: UsageProvider
+        let enabled: Bool
+        let metricCount: Int
+        let state: UsageStore.ProviderState
+    }
+
+    let entries: [Entry]
 }
 
 @main
@@ -101,9 +119,14 @@ struct ClawstatusApp: App {
         MenuBarExtra {
             HUDView(store: store, preferences: preferences)
         } label: {
-            Text(store.menuLabel)
-                .monospacedDigit()
-                .help("C = Claude remaining usage · X = Codex remaining usage")
+            if store.hasEnabledProviders {
+                Text(store.menuLabel.isEmpty ? "…" : store.menuLabel)
+                    .monospacedDigit()
+                    .help("C = Claude remaining usage · X = Codex remaining usage")
+            } else {
+                Image(systemName: "gauge.with.dots.needle.33percent")
+                    .help("Clawstatus — providers disabled")
+            }
         }
         .menuBarExtraStyle(.window)
     }

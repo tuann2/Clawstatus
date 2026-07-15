@@ -2,36 +2,41 @@ import AppKit
 import ClawlineCore
 import SwiftUI
 
+private func openTerminal() {
+    let terminal = URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app")
+    NSWorkspace.shared.openApplication(
+        at: terminal,
+        configuration: NSWorkspace.OpenConfiguration()
+    )
+}
+
 struct HUDView: View {
     @ObservedObject var store: UsageStore
     @ObservedObject var preferences: UIPreferences
+    @State private var isShowingProviderSettings = false
 
     private let coral = Color(red: 1.0, green: 0.47, blue: 0.42)
     private let graphite = Color(red: 0.075, green: 0.082, blue: 0.094)
 
     var body: some View {
         Group {
-            if preferences.isCompact {
-                compactCard
-            } else {
-                fullCard
-            }
+            if preferences.isCompact { compactCard } else { fullCard }
+        }
+        .popover(isPresented: $isShowingProviderSettings, arrowEdge: .bottom) {
+            ProviderSettingsPopover(preferences: preferences)
         }
         .background(graphite)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(Color.white.opacity(0.12), lineWidth: 1)
         }
         .opacity(preferences.opacity)
-        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .simultaneousGesture(
-            TapGesture(count: 2).onEnded {
-                preferences.toggleCompact()
-            }
-        )
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .simultaneousGesture(TapGesture(count: 2).onEnded { preferences.toggleCompact() })
         .contextMenu { cardMenu }
         .animation(.easeInOut(duration: 0.18), value: preferences.isCompact)
+        .animation(.easeInOut(duration: 0.18), value: preferences.enabledProviders)
         .animation(.easeInOut(duration: 0.12), value: preferences.opacity)
         .preferredColorScheme(.dark)
     }
@@ -39,50 +44,41 @@ struct HUDView: View {
     private var fullCard: some View {
         VStack(spacing: 0) {
             header
-            meters(showsReset: true)
-                .padding(.horizontal, 18)
-                .padding(.vertical, 17)
+            ScrollView {
+                providerContent(compact: false)
+                    .padding(14)
+            }
+            .frame(maxHeight: 410)
             footer
         }
-        .frame(width: 310)
+        .frame(width: 330)
     }
 
     private var compactCard: some View {
-        meters(showsReset: false)
-            .padding(.horizontal, 13)
-            .padding(.vertical, 12)
-            .frame(width: 170)
+        providerContent(compact: true)
+            .padding(.horizontal, 11)
+            .padding(.vertical, 10)
+            .frame(width: 210)
     }
 
     @ViewBuilder
-    private func meters(showsReset: Bool) -> some View {
+    private func providerContent(compact: Bool) -> some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
-            VStack(spacing: showsReset ? 17 : 12) {
-                if let snapshot = store.snapshot {
-                    ProviderLabel(name: "Claude", showsReset: showsReset)
-                    UsageMeter(
-                        label: showsReset ? "5-hour" : "5h",
-                        window: snapshot.fiveHour,
-                        now: context.date,
-                        tint: coral,
-                        showsReset: showsReset
-                    )
-                    UsageMeter(
-                        label: showsReset ? "7-day" : "7d",
-                        window: snapshot.sevenDay,
-                        now: context.date,
-                        tint: .secondary,
-                        showsReset: showsReset
-                    )
-                }
-                if let codex = store.codexSnapshot {
-                    ProviderLabel(name: "Codex", showsReset: showsReset)
-                    ForEach(codex.windows) { window in
-                        CodexUsageMeter(window: window, now: context.date, tint: .blue, showsReset: showsReset)
+            VStack(spacing: compact ? 7 : 10) {
+                if store.enabledProviders.isEmpty {
+                    EmptyProvidersView(compact: compact) {
+                        isShowingProviderSettings = true
                     }
-                }
-                if store.snapshot == nil && store.codexSnapshot == nil {
-                    PlaceholderMeter(label: showsReset ? "5-hour" : "5h")
+                } else {
+                    ForEach(store.enabledProviders) { provider in
+                        ProviderUsageCard(
+                            provider: provider,
+                            record: store.record(for: provider),
+                            now: context.date,
+                            compact: compact,
+                            tint: tint(for: provider)
+                        )
+                    }
                 }
             }
         }
@@ -93,99 +89,90 @@ struct HUDView: View {
             Image(systemName: "gauge.with.dots.needle.33percent")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(coral)
-
             Text("Clawstatus")
                 .font(.system(size: 13, weight: .semibold))
-
             Spacer()
-            statusLabel
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                Text(freshnessText(now: context.date))
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            settingsButton
         }
-        .padding(.horizontal, 18)
-        .frame(height: 44)
+        .padding(.horizontal, 16)
+        .frame(height: 46)
         .background(Color.white.opacity(0.035))
-        .overlay(alignment: .bottom) {
-            Divider().opacity(0.35)
-        }
+        .overlay(alignment: .bottom) { Divider().opacity(0.35) }
     }
 
-    @ViewBuilder
-    private var statusLabel: some View {
-        switch store.connectionState {
-        case .loading:
-            ProgressView().controlSize(.small)
-        case .cached:
-            Label("Cached", systemImage: "circle.fill")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(.secondary)
-                .labelStyle(CompactStatusLabelStyle())
-        case .live:
-            Label("Live", systemImage: "circle.fill")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(Color.green)
-                .labelStyle(CompactStatusLabelStyle())
-        case .authentication:
-            Button(action: openTerminal) {
-                Label("Sign in", systemImage: "exclamationmark.circle.fill")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(coral)
-                    .labelStyle(CompactStatusLabelStyle())
-            }
-            .buttonStyle(.plain)
-            .help("Open Terminal, then run claude or codex login to sign in")
-        case .offline:
-            Label("Offline", systemImage: "wifi.slash")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(.secondary)
-                .labelStyle(CompactStatusLabelStyle())
+    private var settingsButton: some View {
+        Button {
+            isShowingProviderSettings = true
+        } label: {
+            Image(systemName: "gearshape")
         }
+        .buttonStyle(.plain)
+        .help("Provider settings")
     }
 
     @ViewBuilder
     private var cardMenu: some View {
+        Menu("Providers") {
+            ForEach(UsageProvider.supported) { provider in
+                Toggle(provider.displayName, isOn: providerBinding(provider))
+            }
+            Divider()
+            Button("Provider settings…") { isShowingProviderSettings = true }
+        }
+
+        if !store.providersWithTerminalRecovery.isEmpty {
+            Divider()
+            ForEach(store.providersWithTerminalRecovery) { provider in
+                Button("Open Terminal for \(provider.displayName)") {
+                    openTerminal()
+                }
+            }
+        }
+
         Button {
             preferences.toggleCompact()
         } label: {
             Label(
                 preferences.isCompact ? "Full size" : "Compact size",
-                systemImage: preferences.isCompact ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left"
+                systemImage: preferences.isCompact
+                    ? "arrow.up.left.and.arrow.down.right"
+                    : "arrow.down.right.and.arrow.up.left"
             )
         }
 
         Menu("Opacity") {
             ForEach(UIPreferences.opacityLevels, id: \.self) { level in
-                Button {
-                    preferences.selectOpacity(level)
-                } label: {
+                Button { preferences.selectOpacity(level) } label: {
                     HStack {
                         Text("\(Int(level * 100))%")
-                        if preferences.opacity == level {
-                            Image(systemName: "checkmark")
-                        }
+                        if preferences.opacity == level { Image(systemName: "checkmark") }
                     }
                 }
             }
         }
 
         Divider()
-        Button("Refresh now") {
-            Task { await store.refresh() }
-        }
-        Button("Quit Clawstatus") {
-            NSApplication.shared.terminate(nil)
-        }
+        Button("Refresh now") { Task { await store.refresh() } }
+            .disabled(!store.hasEnabledProviders)
+        Button("Quit Clawstatus") { NSApplication.shared.terminate(nil) }
     }
 
     private var footer: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
             TimelineView(.periodic(from: .now, by: 1)) { context in
-                Text(footerText(now: context.date))
+                Text(freshnessText(now: context.date))
                     .font(.system(size: 10))
-                    .foregroundStyle(footerColor)
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
-
             Spacer(minLength: 8)
-
+            settingsButton
             Button {
                 Task { await store.refresh() }
             } label: {
@@ -193,164 +180,286 @@ struct HUDView: View {
                     .rotationEffect(store.isRefreshing ? .degrees(180) : .zero)
             }
             .buttonStyle(.plain)
-            .disabled(store.isRefreshing)
+            .disabled(store.isRefreshing || !store.hasEnabledProviders)
             .help("Refresh now")
-
-            Button {
-                NSApplication.shared.terminate(nil)
-            } label: {
+            Button { NSApplication.shared.terminate(nil) } label: {
                 Image(systemName: "power")
             }
             .buttonStyle(.plain)
             .help("Quit Clawstatus")
         }
         .foregroundStyle(.secondary)
-        .padding(.horizontal, 18)
-        .frame(height: 38)
+        .padding(.horizontal, 16)
+        .frame(height: 40)
         .background(Color.white.opacity(0.025))
-        .overlay(alignment: .top) {
-            Divider().opacity(0.35)
-        }
+        .overlay(alignment: .top) { Divider().opacity(0.35) }
     }
 
-    private var footerColor: Color {
-        if case .authentication = store.connectionState { return coral }
-        return .secondary
-    }
-
-    private func footerText(now: Date) -> String {
-        switch store.connectionState {
-        case .loading:
-            return "Loading usage…"
-        case .authentication(let message), .offline(let message):
-            return message
-        case .cached:
-            guard let capturedAt = store.newestCapturedAt else { return "Cached" }
-            return UsageTimestampFormatter.updatedText(capturedAt: capturedAt, now: now)
-        case .live:
-            if let unavailable = store.availabilityMessage { return unavailable }
-            guard let capturedAt = store.newestCapturedAt else { return "Live" }
-            return UsageTimestampFormatter.updatedText(capturedAt: capturedAt, now: now)
-        }
-    }
-
-    private func openTerminal() {
-        let terminal = URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app")
-        NSWorkspace.shared.openApplication(
-            at: terminal,
-            configuration: NSWorkspace.OpenConfiguration()
+    private func providerBinding(_ provider: UsageProvider) -> Binding<Bool> {
+        Binding(
+            get: { preferences.isEnabled(provider) },
+            set: { preferences.setEnabled($0, for: provider) }
         )
+    }
+
+    private func freshnessText(now: Date) -> String {
+        guard store.hasEnabledProviders else { return "Providers off" }
+        if store.isRefreshing { return "Refreshing…" }
+        guard let capturedAt = store.newestCapturedAt else { return "Waiting for usage…" }
+        return UsageTimestampFormatter.updatedText(capturedAt: capturedAt, now: now)
+    }
+
+    private func tint(for provider: UsageProvider) -> Color {
+        switch provider {
+        case .claude: coral
+        case .codex: .blue
+        case .antigravity: .purple
+        }
     }
 }
 
-private struct UsageMeter: View {
-    let label: String
-    let window: UsageWindow
+private struct ProviderUsageCard: View {
+    let provider: UsageProvider
+    let record: UsageStore.ProviderRecord
     let now: Date
+    let compact: Bool
     let tint: Color
-    let showsReset: Bool
 
     var body: some View {
-        VStack(spacing: showsReset ? 7 : 5) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(label)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.secondary)
+        VStack(spacing: compact ? 7 : 12) {
+            HStack(spacing: 8) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(tint.opacity(0.16))
+                    Text(provider.menuSymbol)
+                        .font(.system(size: compact ? 9 : 11, weight: .bold, design: .rounded))
+                        .foregroundStyle(tint)
+                }
+                .frame(width: compact ? 20 : 26, height: compact ? 20 : 26)
+                Text(provider.displayName)
+                    .font(.system(size: compact ? 11 : 12, weight: .semibold))
+                    .lineLimit(1)
                 Spacer()
-                Text("\(Int(window.clampedUtilization.rounded()))%")
-                    .font(.system(size: showsReset ? 24 : 15, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
+                ProviderStatusBadge(state: record.state, hasSnapshot: record.snapshot != nil, compact: compact)
             }
 
-            ProgressView(value: window.clampedUtilization, total: 100)
-                .progressViewStyle(.linear)
-                .tint(tint)
-
-            if showsReset {
-                HStack {
-                    Text("Resets")
-                    Spacer()
-                    Text(resetText)
-                        .monospacedDigit()
+            if compact {
+                compactSummary
+            } else if let snapshot = record.snapshot {
+                ForEach(snapshot.metrics) { metric in
+                    UsageMetricRow(metric: metric, now: now, tint: tint)
                 }
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
+                if let issue = record.issue {
+                    recoveryRow(issue)
+                }
+            } else {
+                unavailablePlaceholder
             }
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(accessibilityText)
+        .padding(compact ? 9 : 12)
+        .background(Color.white.opacity(0.045))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.white.opacity(0.07), lineWidth: 1)
+        }
     }
 
-    private var accessibilityText: String {
-        let usage = "\(label) usage \(Int(window.clampedUtilization.rounded())) percent"
-        return showsReset ? "\(usage), resets \(resetText)" : usage
+    @ViewBuilder
+    private var compactSummary: some View {
+        if let metric = record.snapshot?.metrics.first {
+            HStack(spacing: 8) {
+                Text(metric.label)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.secondary)
+                ProgressView(value: metric.clampedUsedPercent, total: 100)
+                    .progressViewStyle(.linear)
+                    .tint(tint)
+                Text("\(Int(metric.clampedUsedPercent.rounded()))%")
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+            }
+        } else {
+            unavailablePlaceholder
+        }
+    }
+
+    private var unavailablePlaceholder: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 8) {
+                if case .loading = record.state { ProgressView().controlSize(.small) }
+                Text(statusMessage)
+                    .font(.system(size: compact ? 9 : 10))
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            if !compact, let issue = record.issue, issue.recovery != nil {
+                Button("Open Terminal") { openTerminal() }
+                    .controlSize(.small)
+            }
+        }
+        .frame(minHeight: compact ? 12 : 24)
+    }
+
+    @ViewBuilder
+    private func recoveryRow(_ issue: UsageStore.ProviderIssue) -> some View {
+        HStack(spacing: 8) {
+            Text(issue.message)
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+            Spacer()
+            if issue.recovery == .openTerminal {
+                Button("Open Terminal") { openTerminal() }
+                    .controlSize(.mini)
+            }
+        }
+    }
+
+    private var statusMessage: String {
+        switch record.state {
+        case .loading: "Loading usage…"
+        case .unavailable(let issue): issue.message
+        case .disabled: "Disabled"
+        case .cached: "Using cached usage"
+        case .live: "Usage unavailable"
+        }
+    }
+}
+
+private struct UsageMetricRow: View {
+    let metric: ProviderUsageMetric
+    let now: Date
+    let tint: Color
+
+    var body: some View {
+        VStack(spacing: 7) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(metric.label)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("\(Int(metric.clampedUsedPercent.rounded()))%")
+                    .font(.system(size: 22, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+            }
+            ProgressView(value: metric.clampedUsedPercent, total: 100)
+                .progressViewStyle(.linear)
+                .tint(tint)
+            HStack {
+                Text("Resets")
+                Spacer()
+                Text(resetText).monospacedDigit()
+            }
+            .font(.system(size: 9))
+            .foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(metric.label) usage \(Int(metric.clampedUsedPercent.rounded())) percent, resets \(resetText)")
     }
 
     private var resetText: String {
-        guard let reset = window.resetsAt else { return "Unknown" }
+        guard let reset = metric.resetsAt else { return "Unknown" }
         let seconds = max(0, Int(reset.timeIntervalSince(now)))
         if seconds == 0 { return "Now" }
         let hours = seconds / 3600
         let minutes = (seconds % 3600) / 60
-        if hours >= 24 {
-            return reset.formatted(date: .abbreviated, time: .shortened)
-        }
+        if hours >= 24 { return reset.formatted(date: .abbreviated, time: .shortened) }
         if hours > 0 { return "in \(hours)h \(minutes)m" }
         return "in \(minutes)m"
     }
 }
 
-private struct ProviderLabel: View {
-    let name: String
-    let showsReset: Bool
+private struct ProviderStatusBadge: View {
+    let state: UsageStore.ProviderState
+    let hasSnapshot: Bool
+    let compact: Bool
 
     var body: some View {
-        Text(name)
-            .font(.system(size: showsReset ? 11 : 9, weight: .bold))
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-private struct CodexUsageMeter: View {
-    let window: CodexUsageWindow
-    let now: Date
-    let tint: Color
-    let showsReset: Bool
-
-    var body: some View {
-        UsageMeter(
-            label: window.durationLabel,
-            window: UsageWindow(utilization: Double(window.clampedUsedPercent), resetsAt: window.resetsAt),
-            now: now,
-            tint: tint,
-            showsReset: showsReset
-        )
-    }
-}
-
-private struct PlaceholderMeter: View {
-    let label: String
-
-    var body: some View {
-        VStack(spacing: 8) {
-            HStack {
-                Text(label)
-                Spacer()
-                Text("—%")
-            }
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(.secondary)
-            ProgressView(value: 0, total: 100)
-        }
-    }
-}
-
-private struct CompactStatusLabelStyle: LabelStyle {
-    func makeBody(configuration: Configuration) -> some View {
         HStack(spacing: 4) {
-            configuration.icon.font(.system(size: 6))
-            configuration.title
+            Image(systemName: icon).font(.system(size: 5))
+            if !compact { Text(label) }
         }
+        .font(.system(size: 8, weight: .semibold))
+        .foregroundStyle(color)
+        .padding(.horizontal, compact ? 4 : 6)
+        .padding(.vertical, 3)
+        .background(color.opacity(0.12))
+        .clipShape(Capsule())
+        .help(label)
+    }
+
+    private var label: String {
+        switch state {
+        case .loading: "Loading"
+        case .live: "Live"
+        case .cached: "Cached"
+        case .unavailable: hasSnapshot ? "Cached" : "Unavailable"
+        case .disabled: "Off"
+        }
+    }
+
+    private var icon: String {
+        switch state {
+        case .loading: "clock.fill"
+        case .live: "circle.fill"
+        case .cached: "clock.fill"
+        case .unavailable: hasSnapshot ? "clock.fill" : "exclamationmark.circle.fill"
+        case .disabled: "minus.circle.fill"
+        }
+    }
+
+    private var color: Color {
+        switch state {
+        case .live: .green
+        case .unavailable where !hasSnapshot: .orange
+        default: .secondary
+        }
+    }
+}
+
+private struct EmptyProvidersView: View {
+    let compact: Bool
+    let openSettings: () -> Void
+
+    var body: some View {
+        VStack(spacing: compact ? 6 : 10) {
+            Image(systemName: "gauge.with.dots.needle.0percent")
+                .font(.system(size: compact ? 16 : 24))
+                .foregroundStyle(.secondary)
+            Text("Enable a provider in Settings")
+                .font(.system(size: compact ? 9 : 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            if !compact {
+                Button("Choose providers") { openSettings() }
+                    .controlSize(.small)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: compact ? 52 : 110)
+    }
+}
+
+private struct ProviderSettingsPopover: View {
+    @ObservedObject var preferences: UIPreferences
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Providers")
+                .font(.system(size: 13, weight: .semibold))
+            Text("Choose which CLI usage appears and is polled.")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+            ForEach(UsageProvider.supported) { provider in
+                Toggle("Show \(provider.displayName) usage", isOn: Binding(
+                    get: { preferences.isEnabled(provider) },
+                    set: { preferences.setEnabled($0, for: provider) }
+                ))
+                .toggleStyle(.switch)
+                .controlSize(.small)
+            }
+        }
+        .padding(16)
+        .frame(width: 260)
+        .preferredColorScheme(.dark)
     }
 }
