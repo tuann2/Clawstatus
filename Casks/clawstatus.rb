@@ -1,6 +1,6 @@
 cask "clawstatus" do
-  version "0.4.0"
-  sha256 "5a9ce5a581bd78d47b7c61bb6a2af75c0a5f6b226d6593f4bb593a0da89d4191"
+  version "0.4.1"
+  sha256 "614d2d998daaa24c72fb85d455331056f4286af84fef7f9e7582dcecf5998b13"
 
   url "https://github.com/tuann2/Clawstatus/releases/download/v#{version}/Clawstatus-#{version}-apple-silicon.dmg"
   name "Clawstatus"

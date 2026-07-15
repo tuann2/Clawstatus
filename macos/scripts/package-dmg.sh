@@ -22,6 +22,9 @@ ln -s /Applications "$staging/Applications"
     "$dmg"
 
 rm -rf "$staging"
-/usr/bin/shasum -a 256 "$dmg" > "$dmg.sha256"
+(
+    cd "$(dirname "$dmg")"
+    /usr/bin/shasum -a 256 "$(basename "$dmg")" > "$(basename "$dmg").sha256"
+)
 
 printf '%s\n' "$dmg"

@@ -73,7 +73,7 @@ See [the installation and usage guide](docs/INSTALL.md) for requirements,
 upgrades, controls, uninstalling, and Gatekeeper troubleshooting.
 
 The current installer and checksum are available from the
-[Clawstatus 0.4.0 release](https://github.com/tuann2/Clawstatus/releases/tag/v0.4.0).
+[Clawstatus 0.4.1 release](https://github.com/tuann2/Clawstatus/releases/tag/v0.4.1).
 
 To create the drag-to-Applications installer locally:
 
@@ -81,12 +81,12 @@ To create the drag-to-Applications installer locally:
 ./macos/scripts/package-dmg.sh
 ```
 
-Open `macos/dist/Clawstatus-0.4.0-apple-silicon.dmg`, then drag Clawstatus to
+Open `macos/dist/Clawstatus-0.4.1-apple-silicon.dmg`, then drag Clawstatus to
 Applications. This build is ad-hoc signed rather than Apple-notarized, so on the
 first launch use Control-click → Open and confirm once if Gatekeeper asks.
 
-See [the 0.4.0 release notes](docs/releases/v0.4.0.md) for the Codex integration
-and provider-specific behavior in this version.
+See [the 0.4.1 release notes](docs/releases/v0.4.1.md) for the latest polling
+and reliability improvements.
 
 ## Project layout
 

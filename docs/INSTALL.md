@@ -39,13 +39,13 @@ Do not use `sudo spctl --master-disable` or disable Gatekeeper system-wide.
 ## Install from the DMG
 
 Download the DMG and `.sha256` file from the
-[Clawstatus 0.4.0 release](https://github.com/tuann2/Clawstatus/releases/tag/v0.4.0).
+[Clawstatus 0.4.1 release](https://github.com/tuann2/Clawstatus/releases/tag/v0.4.1).
 Verify the installer, open it, and drag Clawstatus to Applications:
 
 ```bash
 cd ~/Downloads
-shasum -a 256 -c Clawstatus-0.4.0-apple-silicon.dmg.sha256
-open Clawstatus-0.4.0-apple-silicon.dmg
+shasum -a 256 -c Clawstatus-0.4.1-apple-silicon.dmg.sha256
+open Clawstatus-0.4.1-apple-silicon.dmg
 ```
 
 Then remove quarantine from this app only and launch it:
