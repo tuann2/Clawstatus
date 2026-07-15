@@ -9,13 +9,18 @@ browser or webview.
 ## What it does
 
 - Runs the installed Claude Code CLI headlessly with
-  `claude -p --no-session-persistence /usage` every 60 seconds and reads its
-  plain-text usage report. The process runs in an isolated app-owned directory
+  `claude -p --no-session-persistence /usage` on the normal 60-second polling
+  interval and reads its plain-text usage report. The process runs in an
+  isolated app-owned directory
   with tools, MCP servers, and project/user settings disabled, so it does not
   request access to Desktop, Documents, projects, or other protected folders.
 - Runs a short-lived `codex app-server --stdio` for each poll and asks its official
   app-server API for rate limits. Codex is optional and is independently resilient
   when it is signed out, missing, or outdated.
+- Times out stalled Claude and Codex CLI calls so one hung process cannot stop
+  later refreshes. When both providers repeatedly fail, automatic retries back
+  off from 60 seconds to at most 5 minutes; **Refresh now** retries immediately
+  and restores the normal interval.
 - Uses `C` for Claude and `X` for Codex in the menu bar, for example
   `C 76% · X 47%`; all percentages are remaining capacity.
 - Separates Claude and Codex in the floating HUD and shows every available window.
@@ -25,7 +30,8 @@ browser or webview.
 - Offers 100%, 85%, 70%, and 55% card opacity from the right-click menu.
 - Remembers Compact size and opacity across restarts.
 - Keeps last successful provider snapshots in
-  `~/Library/Application Support/Clawstatus/`.
+  `~/Library/Application Support/Clawstatus/`. On launch, saved data is labeled
+  **Cached** until a provider refresh succeeds.
 - Never reads, saves, logs, or refreshes OAuth tokens or `~/.codex/auth.json`;
   the official CLIs own authentication and the only saved data is usage snapshots.
 - The **Sign in** action opens Terminal. Run `claude` to authenticate Claude Code

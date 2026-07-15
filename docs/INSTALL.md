@@ -73,9 +73,14 @@ xattr -dr com.apple.quarantine /Applications/Clawstatus.app
   (100%, 85%, 70%, or 55%).
 - Compact size shows provider bars and percentages only, without reset times.
 - Size and opacity are remembered after quitting or restarting the Mac.
-- Clawstatus refreshes every 60 seconds through Claude Code `/usage` and a
-  short-lived official Codex app-server process. It does not read, store, log,
-  or refresh OAuth tokens, including `~/.codex/auth.json`.
+- Clawstatus normally refreshes every 60 seconds through Claude Code `/usage`
+  and a short-lived official Codex app-server process. If both providers keep
+  failing, automatic retries back off to at most 5 minutes. **Refresh now**
+  retries immediately and restores the normal interval.
+- Saved usage is labeled **Cached** after launch until a provider refresh
+  succeeds. Stalled CLI calls are timed out so later refreshes can continue.
+- Clawstatus does not read, store, log, or refresh OAuth tokens, including
+  `~/.codex/auth.json`.
 
 ## Uninstall
 
