@@ -1,9 +1,6 @@
 # Install and use Clawstatus
 
-This guide covers both the latest stable release and the current source build.
-The source build contains the provider Settings and widget-style HUD planned
-for 0.5.0; the published Homebrew/DMG channel remains on 0.4.1 until a new
-GitHub Release is created.
+This guide covers the 0.5.0 stable release and the current source build.
 
 ## Requirements
 
@@ -29,8 +26,8 @@ to disable a CLI you do not want the app to poll.
 
 | Channel | Recommended for | Version |
 | --- | --- | --- |
-| Homebrew Cask | Most users who want published artifacts and checksums | 0.4.1 stable |
-| GitHub Release DMG | Manual installation of the stable artifact | 0.4.1 stable |
+| Homebrew Cask | Most users who want published artifacts and checksums | 0.5.0 stable |
+| GitHub Release DMG | Manual installation of the stable artifact | 0.5.0 stable |
 | Current source build | Testing provider Settings and the widget-style HUD | Current `main` |
 
 ## Install the current source build
@@ -81,13 +78,13 @@ Do not use `sudo spctl --master-disable` or disable Gatekeeper system-wide.
 ## Install the stable release from the DMG
 
 Download the DMG and `.sha256` file from the
-[Clawstatus 0.4.1 release](https://github.com/tuann2/Clawstatus/releases/tag/v0.4.1).
+[Clawstatus 0.5.0 release](https://github.com/tuann2/Clawstatus/releases/tag/v0.5.0).
 Verify the installer, open it, and drag Clawstatus to Applications:
 
 ```bash
 cd ~/Downloads
-shasum -a 256 -c Clawstatus-0.4.1-apple-silicon.dmg.sha256
-open Clawstatus-0.4.1-apple-silicon.dmg
+shasum -a 256 -c Clawstatus-0.5.0-apple-silicon.dmg.sha256
+open Clawstatus-0.5.0-apple-silicon.dmg
 ```
 
 Then remove quarantine from this app only and launch it:

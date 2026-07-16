@@ -1,6 +1,6 @@
 cask "clawstatus" do
-  version "0.4.1"
-  sha256 "614d2d998daaa24c72fb85d455331056f4286af84fef7f9e7582dcecf5998b13"
+  version "0.5.0"
+  sha256 "6db5e25c3ea8f6fdeb0afb2529345675d2af150f76a835e8733ef2e04b3569ef"
 
   url "https://github.com/tuann2/Clawstatus/releases/download/v#{version}/Clawstatus-#{version}-apple-silicon.dmg"
   name "Clawstatus"
@@ -21,7 +21,7 @@ cask "clawstatus" do
 
       xattr -dr com.apple.quarantine /Applications/Clawstatus.app
 
-    Install and sign in to Claude Code, Codex CLI, or both. Clawstatus shows
-    whichever providers are available.
+    Install and sign in to Claude Code, Codex CLI, or both. Use Clawstatus
+    Settings to choose which installed providers are displayed and polled.
   EOS
 end

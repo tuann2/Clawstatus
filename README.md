@@ -63,10 +63,9 @@ Requirements: Apple Silicon, macOS 13 or newer, and at least one installed,
 signed-in provider: Claude Code with headless `/usage` support, Codex CLI, or
 both.
 
-The published Homebrew Cask and DMG currently install stable version 0.4.1.
-To test the provider Settings and widget-style HUD from the current source,
-follow the **Install the current source build** section in
-[the installation guide](docs/INSTALL.md).
+The published Homebrew Cask and DMG install stable version 0.5.0. To build the
+latest commit instead, follow the **Install the current source build** section
+in [the installation guide](docs/INSTALL.md).
 
 Recommended Homebrew installation. Homebrew verifies the pinned release
 SHA-256 first; the second command removes quarantine from Clawstatus only
@@ -84,7 +83,7 @@ installation channels, upgrades, first-run verification, controls,
 uninstalling, and troubleshooting.
 
 The current installer and checksum are available from the
-[Clawstatus 0.4.1 release](https://github.com/tuann2/Clawstatus/releases/tag/v0.4.1).
+[Clawstatus 0.5.0 release](https://github.com/tuann2/Clawstatus/releases/tag/v0.5.0).
 
 To create the drag-to-Applications installer locally:
 
@@ -92,12 +91,12 @@ To create the drag-to-Applications installer locally:
 ./macos/scripts/package-dmg.sh
 ```
 
-Open `macos/dist/Clawstatus-0.4.1-apple-silicon.dmg`, then drag Clawstatus to
+Open `macos/dist/Clawstatus-0.5.0-apple-silicon.dmg`, then drag Clawstatus to
 Applications. This build is ad-hoc signed rather than Apple-notarized, so on the
 first launch use Control-click → Open and confirm once if Gatekeeper asks.
 
-See [the 0.4.1 release notes](docs/releases/v0.4.1.md) for the latest polling
-and reliability improvements.
+See [the 0.5.0 release notes](docs/releases/v0.5.0.md) for provider Settings,
+the widget-style HUD, and CLI compatibility improvements.
 
 ## Project layout
 
